@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  COS-IFS shell manifest.
+
+  This is our OWN manifest. Nothing is inherited from InstallerX and nothing has to
+  be patched afterwards. That is the whole point of this project: the package name is
+  correct from the start (so no resources.arsc rename is needed), we request no
+  privileged permissions (so there is no privapp allowlist exposure), and the intent
+  filters are exactly the ones we want (so no greedy filter has to be narrowed).
+
+  Two things must stay true or the device will not boot (see SPEC.md 3.1):
+
+    * exactly ONE component matches the installer query
+      (INSTALL_PACKAGE + DEFAULT + content/apk)      -> ForwardActivity
+    * exactly ONE component matches the uninstaller query
+      (UNINSTALL_PACKAGE/DELETE + DEFAULT + package) -> ForwardUninstallActivity
+
+  The four activity-aliases below are FILTERLESS on purpose. Callers such as file
+  managers launch `cmp=com.android.packageinstaller/.InstallStart` explicitly, and an
+  explicit intent only needs the component to exist and be exported; it never consults
+  intent filters. Giving an alias a filter would add a second match to the self-check
+  above. (In the sibling project these aliases had to be bolted onto a foreign
+  manifest; here they are normal aliases to our own activity.)
+
+  NOTE: XML comments may not contain a double hyphen. Keep them out.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.android.packageinstaller"
+    android:versionCode="17000001"
+    android:versionName="17.0.1"
+    android:compileSdkVersion="37"
+    android:compileSdkVersionCodename="17"
+    platformBuildVersionCode="37"
+    platformBuildVersionName="17">
+
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="37"/>
+
+    <!--
+      Package visibility (Android 11+). Without this, queryIntentActivities() sees
+      almost nothing and the shell cannot discover candidate installers. See SPEC 4.1.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.INSTALL_PACKAGE"/>
+            <data android:mimeType="application/vnd.android.package-archive"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:mimeType="application/vnd.android.package-archive"/>
+        </intent>
+    </queries>
+
+    <application
+        android:label="COS-IFS"
+        android:extractNativeLibs="true"
+        android:allowBackup="false">
+
+        <!-- The single installer-query component. -->
+        <activity
+            android:name="com.android.packageinstaller.ForwardActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <action android:name="android.intent.action.INSTALL_PACKAGE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:scheme="content"/>
+                <data android:scheme="file"/>
+                <data android:mimeType="application/vnd.android.package-archive"/>
+                <data android:pathPattern=".*"/>
+            </intent-filter>
+        </activity>
+
+        <!-- The single uninstaller-query component. -->
+        <activity
+            android:name="com.android.packageinstaller.ForwardUninstallActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true">
+            <intent-filter>
+                <action android:name="android.intent.action.UNINSTALL_PACKAGE"/>
+                <action android:name="android.intent.action.DELETE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:scheme="package"/>
+            </intent-filter>
+        </activity>
+
+        <!-- Filterless. See the header comment. -->
+        <activity-alias
+            android:name="com.android.packageinstaller.InstallStart"
+            android:targetActivity="com.android.packageinstaller.ForwardActivity"
+            android:exported="true"/>
+        <activity-alias
+            android:name="com.android.packageinstaller.UninstallerActivity"
+            android:targetActivity="com.android.packageinstaller.ForwardUninstallActivity"
+            android:exported="true"/>
+        <activity-alias
+            android:name="com.android.packageinstaller.UnarchiveActivity"
+            android:targetActivity="com.android.packageinstaller.ForwardActivity"
+            android:exported="true"/>
+        <activity-alias
+            android:name="com.android.packageinstaller.UnarchiveErrorActivity"
+            android:targetActivity="com.android.packageinstaller.ForwardActivity"
+            android:exported="true"/>
+    </application>
+</manifest>

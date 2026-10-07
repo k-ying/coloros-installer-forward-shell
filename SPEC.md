@@ -1,8 +1,19 @@
-# ForwardShell — 设计说明
+# COS-IFS — 设计说明
 
 > 状态：草案 v0.1。
 > 标 **[未决]** 的是需要拍板的，标 **[未验证]** 的是我没有实测依据的，其余都有证据。
 > 证据来源：`coloros-installerx-installer` 项目的真机验证记录 + KernelSU 上游源码 + Hybrid Mount 文档。
+
+## 0. 已定决策（2026-10-07）
+
+| 项 | 决定 | 理由 |
+|---|---|---|
+| 构建工具链 | **纯 smali + apktool** | 本机无 Android SDK、无 `javac`；`apktool.jar` 内置 `prebuilt/linux/aapt2` 与 smali → **零额外下载** |
+| 目标选择（v1） | 自动发现 → 优先级列表 → 系统选择器 | 零配置即可用；用户换安装器也不必改代码 |
+| WebUI | **v1 就做**：自动搜索列表 + 勾选 | 桥在 KernelSU 上已被 Hybrid Mount 验证可用 |
+| 配置存储 | 壳自己的 app 数据目录 | 系统 app 读不到 `/data/adb`（见 §5） |
+| 缩写 | **COS-IFS** | 避免与 SMB/CIFS 混淆 |
+
 
 ---
 
@@ -95,6 +106,26 @@ am start -n com.android.packageinstaller/.SetTarget --es pkg com.rosan.installer
 
 这样无论入口是 WebUI、`action.sh` 还是秘密代码，**存储始终在 app 自己手里**。
 
+### 5.1 WebUI 与壳之间的约定（v1 采用）
+
+既然 WebUI 不能直接写壳的存储、壳也读不到 `/data/adb`，两者之间就只留**最窄的一条缝**：
+
+- **写**（WebUI → 壳）：**不走文件，走 intent，让壳自己存**：
+  ```sh
+  am start -n com.android.packageinstaller/.Configure --es targets "com.rosan.installer.x.revived,…"
+  ```
+  WebUI 里就是 `ksu.exec(...)` 跑这一行 —— **跨域写文件的风险完全避开**（app 写自己的存储永远合法）。
+- **读**（壳 → WebUI）：壳把"候选列表 + 当前勾选"写进自己的 `files/cos-ifs.json`，
+  WebUI 用 `ksu.exec('cat /data/data/com.android.packageinstaller/files/cos-ifs.json')` 读回来渲染。
+  **root 读 app 数据目录是常规操作**（备份类工具都这么干），比写安全得多。
+- **发现**（谁枚举候选）：**必须由壳做**，不要让 WebUI 去解析 `pm` / `cmd package` 的输出。
+  壳手里有 `PackageManager`，还能正确处理 Android 11+ 的 `<queries>` 可见性；shell 里拼字符串既脆又会漏。
+
+于是职责很干净：**壳负责发现与存储，WebUI 只负责画一个带勾选的列表并调用 `am start`。**
+
+> 兼容性：`ksu.exec` 是 KernelSU 管理器的 WebView 桥，APatch 等不保证有 ——
+> 所以壳自己的秘密代码入口（`*#*#…`）**必须一并保留**，作为无 WebUI 时的配置途径。
+
 ## 6. 可配置入口
 
 | 入口 | 成本 | 依赖 | 备注 |
@@ -105,8 +136,8 @@ am start -n com.android.packageinstaller/.SetTarget --es pkg com.rosan.installer
 | **WebUI**（`webroot/index.html` + `ksu.exec`） | 中 | **WebView 桥只有 KernelSU 管理器提供**，APatch 不保证 **[未验证]** | 只是"薄启动器"，不是存储 |
 | 原生设置 Activity（app 内） | 高 | 要编译 Android UI 代码 | 最通用，但最贵 |
 
-**结论**：WebUI 值得做，但它是**薄启动器**而非配置存储；且它的桥只有 KernelSU 有。
-v1 先不做 UI，自动发现 + 优先级列表就够跑起来。
+**结论（已定）**：v1 就做 WebUI，形态是"**自动搜索出来的候选列表 + 勾选**"，按 §5.1 的约定与壳通信。
+WebUI 只是**薄启动器**而不是配置存储；它的桥只有 KernelSU 管理器提供，所以秘密代码入口要一并保留兜底。
 
 ## 7. 构建工具链 —— 目前最大的未决项
 
@@ -126,8 +157,10 @@ v1 先不做 UI，自动发现 + 优先级列表就够跑起来。
 | **B. Java + Android SDK** | JDK + `android.jar` + d8/aapt2 | 源码干净；但 **`android.jar` 不在 Maven 上**，本地编译拿不到 → 这条路天然适合放 **CI**（GitHub Actions 自带 SDK） |
 | **C. Java + 手写框架 stub 编译** | JDK + 自写 stub 类 | 可行但脆弱（stub 签名与真机不符会运行时 `NoSuchMethodError`），不推荐 |
 
-**建议**：先按 **A** 落地，把壳压到最小（一个转发 Activity + 一个设置 Activity），
-smali 维护不下去再切 **B + GitHub Actions**。
+**决定**：走 **A（纯 smali + apktool）**。先只写转发 Activity（不含 UI），把
+「壳能产出来 + 签名块对得上 + 能挂上去 + 开机自检通过 + 转发有效」这几件事依次验证掉；
+配置界面再按 §5.1 加 `ConfigureActivity` 与 WebUI。
+smali 若真的维护不下去再切 **B + GitHub Actions** —— 转发逻辑本身很短，届时按 Java 重写即可。
 
 ## 8. 已知风险 / [未验证]
 
@@ -149,11 +182,16 @@ ForwardShell 是另一条路。**两者不能同时启用** —— 都会占用 
 
 `build/graftsig.py` 从姊妹项目原样复用（也因此本仓库沿用 GPL-3.0）。
 
-## 10. 建议的落地顺序
+## 10. 落地顺序
 
-1. **[先验证]** 在现有设备上确认：用户版 InstallerX 配成 Root 模式后，能独立完成一次安装与卸载，
-   且没有额外确认弹窗。这一步失败则方案 3 的收益大幅缩水，应改走 `coloros-installerx-installer` 的 CI 自动化。
-2. 搭最小壳（转发 + 自动发现），先不考虑 UI。
-3. 用 `graftsig.py` 嫁接签名块，打成模块，真机验证开机自检通过。
-4. 再加 `action.sh` / 秘密代码 / WebUI。
-5. 最后考虑内置兜底安装器。
+1. ~~**[先验证]** 用户版 InstallerX 的 Root 模式~~ → **已验证**：转发目标用 Root 模式可用，
+   速度与系统模式体感相当，没有额外的逐次确认弹窗。
+   （唯一遗留：`dumpsys package` 里的 installer 归属没核对，影响很小。）
+2. ~~**打通构建**~~ → **已完成**。手写 smali 工程（manifest + apktool.yml + smali，零 res）→ `apktool b`
+   → 对齐 → `graftsig.py` 嫁接，全流程跑通。产物 **12631 字节**，签名块与 donor 逐字节一致，
+   组件计数验证通过（两份查询各恰好 1 个）。踩到的两个坑记在 `build/README.md`。
+3. **打通挂载**：打成模块（沿用 Hybrid Mount + 本模块后端设 VFS），真机确认开机自检通过、组件可被显式调用。
+4. **转发逻辑**：intent 复制 + `grantUriPermission` + `setPackage` + 启动；先写死一个目标包验证通路。
+5. **自动发现 + 优先级列表**。
+6. **配置界面**：`ConfigureActivity` + WebUI（按 §5.1），秘密代码入口兜底。
+7. 最后考虑「目标没装」时的内置兜底安装器（§8.1）。

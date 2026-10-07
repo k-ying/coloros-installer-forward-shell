@@ -1,0 +1,16 @@
+version: 3.0.3
+apkFileName: cos-ifs.apk
+isFrameworkApk: false
+# REQUIRED. Without `usesFramework.ids` apktool never hands the framework to aapt2,
+# and then EVERY `android:` attribute fails to resolve ("attribute android:name not
+# found" ...) and the build dies with exit code 1. The trailing W: lines make this
+# look like a manifest problem; it is not. See build/README.md.
+usesFramework:
+  ids:
+  - 1
+sdkInfo:
+  minSdkVersion: '26'
+  targetSdkVersion: '37'
+versionInfo:
+  versionCode: 17000001
+  versionName: 17.0.1
