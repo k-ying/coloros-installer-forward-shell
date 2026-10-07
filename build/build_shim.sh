@@ -35,9 +35,14 @@ done
 
 mkdir -p "$WORK" "$(dirname "$OUT")"
 
-# 1) manifest + smali -> APK.  If this fails with a wall of
-#    "attribute android:... not found", the framework is not reaching aapt2 --
-#    check that shim/apktool.yml still declares usesFramework.ids: [1].
+# 1) manifest + smali -> APK.
+#    apktool caches its previous output in <SRC>/build/apk/ and does NOT invalidate that
+#    cache when the smali changes (it just says "smali has not changed"), so drop it
+#    first. This is the same trap the sibling project documents for its own cache.
+#    If this step instead fails with a wall of "attribute android:... not found", the
+#    framework is not reaching aapt2 -- check that shim/apktool.yml still declares
+#    usesFramework.ids: [1].
+rm -rf "$SRC/build"
 rm -f "$WORK/shim-unsigned.apk"
 "$JAVA" -Duser.home="$JHOMEDIR" -jar "$APKTOOL" b "$SRC" -p "$FW" -o "$WORK/shim-unsigned.apk"
 
