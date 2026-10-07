@@ -116,8 +116,11 @@ am start -n com.android.packageinstaller/.Configure --es targets "com.rosan.inst
   ```
   WebUI 里就是 `ksu.exec(...)` 跑这一行 —— **跨域写文件的风险完全避开**（app 写自己的存储永远合法）。
 - **读**（壳 → WebUI）：壳把"候选列表 + 当前勾选"写进自己的 `files/cos-ifs.txt`，
-  WebUI 用 `ksu.exec('cat /data/data/com.android.packageinstaller/files/cos-ifs.txt')` 读回来渲染。
-  **root 读 app 数据目录是常规操作**（备份类工具都这么干），比写安全得多。
+  WebUI 从 app 数据目录读回来渲染。**root 读 app 数据目录是常规操作**（备份类工具都这么干），
+  比写安全得多。
+  ⚠️ **但这条读取只能产生一行输出**：管理器的 `window.ksu.exec()` 只回传**最后一行**（§14），
+  所以实际用的是 `base64 <file> | tr -d '\n'`，WebUI 端再解码。直接 `cat` 会静默丢内容 ——
+  而且丢得毫无提示，只会表现为"列表里少东西"。
 - **发现**（谁枚举候选）：**必须由壳做**，不要让 WebUI 去解析 `pm` / `cmd package` 的输出。
   壳手里有 `PackageManager`，还能正确处理 Android 11+ 的 `<queries>` 可见性；shell 里拼字符串既脆又会漏。
 
@@ -411,3 +414,79 @@ return-object v2
 | `ForwardActivity` | `pickTarget` | `String.length` | `if-eqz` | ==0 表示空白项 → 跳过 |
 
 三条各自都做了反证测试（改错极性 → 精确报出文件/行号/应有 opcode → 退出码 1）。
+
+---
+
+## 14. 事故记录：WebUI 只显示一个候选（v0.6 修复，2026-10-07）
+
+**现象**：v0.4 / v0.5 真机上，`cos-ifs.txt` 明明有 3 个候选，WebUI 只列出 **1 个**（元萝卜）。
+v0.3 时更早的现象是**一个都没有**。两个版本的文件都是对的 —— 我先后两次用 `su -c cat` 直接读到
+完整内容（4 行 / 174 字节，`wc -l` 也是 4）。
+
+**决定性的第一步**：WebUI 调试面板显示它自己的 `cat` 输出是
+
+```
+candidate=top.bienvenido.saas.i18n|元萝卜
+```
+
+**注意里面没有 `selected=` 那一行。** 而 `writeStateFile()` 的 StringBuilder 是**先 append
+`"selected="` 再进循环**的 —— 所以"文件内容以 `candidate=` 开头"这个形态**不可能由我们的代码产生**。
+结论：**WebUI 拿到的 stdout 根本不是文件的真实内容**（不是文件少了几行）。
+
+**真凶（反编译管理器 `me.weishu.kernelsu` 确认）**：管理器用
+`addJavascriptInterface(obj, "ksu")` 注入桥（`ca0.smali`），`"ksu"` 就是 `sa4`，它的
+
+```smali
+.method public final exec(Ljava/lang/String;)Ljava/lang/String;   # 返回类型是 String，不是对象
+    ...
+    invoke-static {p0, p1}, Leh2;->s(Lxb3;[Ljava/lang/String;)Ljava/lang/String;
+```
+
+而 `eh2.s` 的实现（smali 直译）是：
+
+```java
+List<String> lines = run(cmd);
+if (lines != null && !lines.isEmpty())
+    for (String line : lines)
+        if (!TextUtils.isEmpty(line))
+            return lines.get(lines.size() - 1);   // ← 只返回最后一行
+return "";
+```
+
+**`window.ksu.exec(cmd)` 返回的是一个纯字符串 = 输出的最后一个非空行**，既没有 `errno` 也
+没有 `stderr`（该路径上 `errno` 恒为 0、`stderr` 恒为空）。
+
+**一个原因，两个现象**：
+
+| 版本 | 文件最后一行 | WebUI 看到 | 显示 |
+|---|---|---|---|
+| v0.3 | `selected=`（文件只有这一行） | `selected=` | 0 个候选 |
+| v0.4 / v0.5 | `candidate=top.bienvenido.saas.i18n\|元萝卜` | 那一行 | 1 个候选（元萝卜） |
+
+**修法**：让读取命令**只产生一行**，把整份文件编码进去：
+
+```sh
+base64 /data/data/com.android.packageinstaller/files/cos-ifs.txt | tr -d '\n'
+```
+
+WebUI 端用 `decodeState()` 解码（`atob` + `TextDecoder('utf-8')`，中文标签不会乱）；解出来不像
+我们的格式就按原文处理，这样旧版桥（真的返回完整 `cat` 文本）也仍然能用。调试面板现在同时显示
+**decoded（文件真实内容）** 和 **raw bridge stdout（只有最后一行）**，下次再有类似问题一眼可见。
+
+**本地验证**（node 里跑真实数据，不是靠读代码）：
+
+| 通道 | 候选数 |
+|---|---|
+| base64 单行（真实文件） | **3**，标签正确 |
+| 只有最后一行（旧通道） | 1（元萝卜）|
+| 只有 `selected=` 行 | 0 |
+
+**教训**：
+
+1. **"两边读同一个文件结果不同"是极强的信号** —— 一旦出现，立刻怀疑通道而不是数据。
+   "文件里只有 `candidate=` 而没有 `selected=`"这个细节是破案的钥匙：它反证了写入侧。
+2. **桥的返回值形状是外部契约，必须实测验证。** `normalizeExec()` 同时接受 string 和 object
+   （`typeof res === 'string'` 就直接当成完整 stdout），本意是兼容，结果**掩盖**了"这个桥返回的
+   字符串其实是最后一行"这一事实 —— 于是 WebUI 一路"正常"地解析了一行，没有任何报错。
+3. **凡是"静默少东西"的通道，都要有能自证的显示**：现在调试面板把 raw 和 decoded 并排显示，
+   以后再有截断会立刻暴露。

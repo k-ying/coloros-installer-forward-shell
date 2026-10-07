@@ -1,6 +1,6 @@
 id=cos-ifs
 name=COS-IFS installer forwarder
-version=0.5 (shell 0.5)
-versionCode=5
+version=0.6 (shell 0.5)
+versionCode=6
 author=k_ying
 description=[中文] 用转发壳替换系统安装器 com.android.packageinstaller：壳里没有任何安装器逻辑，只把安装/卸载请求转发给你自己安装的第三方安装器（InstallerX Revived、Universal Installer 等），所以上游安装器怎么更新都与本模块无关。转发目标只认「WebUI 里保存的顺序」，没配置就用内置默认（InstallerX Revived）—— 壳不会去猜。需要元模块 Hybrid Mount，并把本模块的后端设为 VFS。已在 ColorOS 17 / PLK110 真机验证：正常开机、枚举出候选、壳已接管安装。 [EN] Replaces the system installer com.android.packageinstaller with a forwarding shell. The shell contains no installer logic; it re-dispatches install/uninstall requests to a third-party installer you installed yourself (InstallerX Revived, Universal Installer, ...), so upstream installer updates need nothing from this module. The target is only ever the order saved in the WebUI; with no configuration it uses the built-in default (InstallerX Revived) -- the shell never guesses. Requires the Hybrid Mount metamodule with this module's backend set to VFS. VERIFIED ON A REAL DEVICE (ColorOS 17 / PLK110): boots, enumerates candidates, and takes over installs.

@@ -192,7 +192,17 @@ details.card> .pre{margin:0 14px 14px}
   var PKG = 'com.android.packageinstaller';
   var CONFIGURE = PKG + '/.Configure';
   var STATE_FILE = '/data/data/' + PKG + '/files/cos-ifs.txt';
-  var READ_CMD = 'cat ' + STATE_FILE;
+
+  /* The manager injects the bridge as window.ksu.exec(), and that Java method returns a
+     single String: the LAST non-empty line of the command's output. It does not hand back
+     {errno, stdout, stderr} -- errno is always 0 and stderr is always empty on this path.
+     A plain `cat` of this multi-line file therefore reaches the UI as one line, and since
+     writeStateFile() always writes "selected=" first, the WebUI only ever saw the trailing
+     "candidate=..." line: it listed exactly one installer (or none) while the file on disk
+     was completely correct. Confirmed by decompiling me.weishu.kernelsu (SPEC.md 14).
+     So every read has to produce exactly ONE line: base64 the file, strip the newlines,
+     and decode it in JS with decodeState(). */
+  var READ_CMD = 'base64 ' + STATE_FILE + " | tr -d '\\n'";
   var REFRESH_CMD = 'am start -n ' + CONFIGURE + ' --ez refresh true';
   var PKG_RE = /^[A-Za-z0-9_.]+$/;
   var REFRESH_TIMEOUT_MS = 2000;   /* SPEC: 壳是异步写文件，轮询约 2s */
@@ -316,7 +326,23 @@ details.card> .pre{margin:0 14px 14px}
   }
 
   /* ---- 状态文件解析 ---------------------------------------------------
-     逐行 key=value；只认 selected / candidate，其余（含 # 注释）忽略。
+     先解码：READ_CMD 的输出是整份文件的 base64（单行，见上面的说明）。
+     解出来不像我们的格式（老版管理器会返回真正的 cat 文本）就原样使用，
+     这样两种桥都能工作。                                              */
+  function decodeState(raw) {
+    var s = String(raw || '').replace(/\s+/g, '');
+    if (s === '') return '';
+    try {
+      var bin = atob(s);
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      var text = new TextDecoder('utf-8').decode(bytes);
+      if (/(^|\n)\s*(selected|candidate)=/.test(text)) return text;
+    } catch (e) { /* 不是 base64：按原文处理 */ }
+    return raw;
+  }
+
+  /* 逐行 key=value；只认 selected / candidate，其余（含 # 注释）忽略。
      candidate 形如 <package>|<label>，只在第一个 | 处切分。
      容忍缺失的 key、行尾空白与 \r。                                   */
   function parseState(text) {
@@ -360,10 +386,13 @@ details.card> .pre{margin:0 14px 14px}
     try {
       res = await exec(READ_CMD);
     } catch (e) {
-      return { failed: true, error: describeError(e), res: null, raw: '', parsed: parseState('') };
+      return { failed: true, error: describeError(e), res: null, raw: '', text: '',
+               parsed: parseState('') };
     }
     var raw = res.stdout || '';
-    return { failed: false, res: res, raw: raw, parsed: parseState(raw) };
+    var text = decodeState(raw);
+    res.text = text;   /* 给调试面板用 */
+    return { failed: false, res: res, raw: raw, text: text, parsed: parseState(text) };
   }
 
   async function pollState(opts) {
@@ -477,8 +506,11 @@ details.card> .pre{margin:0 14px 14px}
     if (model.readError) {
       L.push('(exec 失败 / failed) ' + model.readError);
     } else if (model.read) {
-      L.push('errno  : ' + model.read.errno);
-      L.push('--- stdout ---');
+      L.push('note   : window.ksu.exec() 只回传输出的最后一行，所以读取走 base64 单行通道');
+      L.push('errno  : ' + model.read.errno + '   (该桥恒为 0)');
+      L.push('--- decoded（文件真实内容）---');
+      L.push(!model.read.text ? '(空 / empty)' : String(model.read.text).replace(/\s+$/, ''));
+      L.push('--- raw bridge stdout（只有最后一行）---');
       L.push(model.read.stdout === '' ? '(空 / empty)' : model.read.stdout.replace(/\s+$/, ''));
       L.push('--- stderr ---');
       L.push(model.read.stderr === '' ? '(空 / empty)' : model.read.stderr.replace(/\s+$/, ''));
