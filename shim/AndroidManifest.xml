@@ -36,6 +36,17 @@
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="37"/>
 
     <!--
+      Gates ConfigureActivity. Signature level means only callers signed with the same
+      certificate (the platform, since this APK carries the stock signing block) or root
+      may drive it. Without this, any installed app could repoint the forwarder at itself
+      and intercept install requests. The WebUI reaches it through the manager's root
+      bridge, so the restriction costs nothing.
+    -->
+    <permission
+        android:name="com.android.packageinstaller.permission.CONFIGURE"
+        android:protectionLevel="signature"/>
+
+    <!--
       Package visibility (Android 11+). Without this, queryIntentActivities() sees
       almost nothing and the shell cannot discover candidate installers. See SPEC 4.1.
     -->
@@ -85,6 +96,17 @@
                 <data android:scheme="package"/>
             </intent-filter>
         </activity>
+
+        <!--
+          Headless configuration endpoint and state dumper (SPEC 5.1). It has NO
+          intent-filter, so it takes no part in either boot self-check query.
+        -->
+        <activity
+            android:name="com.android.packageinstaller.ConfigureActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:permission="com.android.packageinstaller.permission.CONFIGURE"/>
 
         <!-- Filterless. See the header comment. -->
         <activity-alias

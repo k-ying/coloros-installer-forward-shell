@@ -20,16 +20,21 @@
 #     testing shows grants still getting lost, add an explicit grantUriPermission()
 #     wrapped in try/catch (it throws SecurityException when we do not hold the grant).
 #
-#   * pickTarget() runs the discovery described in SPEC 4.1 and never returns our own
-#     package; onCreate falls back to TARGET_PACKAGE if discovery comes up empty, which
-#     also covers the case where package-visibility rules hide everything from us.
+#   * pickTarget() order: the user's saved list first, then PREFERRED, then a sole
+#     candidate. It never returns our own package. onCreate falls back to
+#     TARGET_PACKAGE when discovery comes up empty, which also covers the case where
+#     package-visibility rules hide everything from us.
 
 .field private static final TARGET_PACKAGE:Ljava/lang/String; = "com.rosan.installer.x.revived"
 
-# Only used as the probe URI's authority/scheme; never opened.
+# Only used as the probe URI; never opened.
 .field private static final PROBE_URI:Ljava/lang/String; = "content://cos.ifs/probe.apk"
 
 .field private static final APK_MIME:Ljava/lang/String; = "application/vnd.android.package-archive"
+
+.field private static final PREF_FILE:Ljava/lang/String; = "cos-ifs"
+
+.field private static final PREF_TARGETS:Ljava/lang/String; = "targets"
 
 .field private static final PREFERRED:[Ljava/lang/String;
 
@@ -71,26 +76,23 @@
     return-void
 .end method
 
-# Which package should receive the forwarded intent?  Returns null when nothing
-# suitable is installed (or nothing is visible to us).
-.method public pickTarget()Ljava/lang/String;
-    .locals 11
+# The probe an installer has to answer. Shared with ConfigureActivity so both sides
+# agree on what "a candidate installer" means.
+.method public probeIntent()Landroid/content/Intent;
+    .locals 3
 
-    # Intent probe = new Intent(ACTION_INSTALL_PACKAGE);
     new-instance v0, Landroid/content/Intent;
 
     const-string v1, "android.intent.action.INSTALL_PACKAGE"
 
     invoke-direct {v0, v1}, Landroid/content/Intent;-><init>(Ljava/lang/String;)V
 
-    # probe.addCategory(CATEGORY_DEFAULT);
     const-string v1, "android.intent.category.DEFAULT"
 
     invoke-virtual {v0, v1}, Landroid/content/Intent;->addCategory(Ljava/lang/String;)Landroid/content/Intent;
 
     move-result-object v1
 
-    # probe.setDataAndType(Uri.parse(PROBE_URI), APK_MIME);
     sget-object v1, Lcom/android/packageinstaller/ForwardActivity;->PROBE_URI:Ljava/lang/String;
 
     invoke-static {v1}, Landroid/net/Uri;->parse(Ljava/lang/String;)Landroid/net/Uri;
@@ -103,14 +105,56 @@
 
     move-result-object v1
 
-    # List<ResolveInfo> cands = getPackageManager().queryIntentActivities(probe, 0);
+    return-object v0
+.end method
+
+# The user's saved priority list, in order. Always non-null; may be a single empty
+# string when nothing has been configured, which harmlessly matches no package.
+.method public readSavedTargets()[Ljava/lang/String;
+    .locals 3
+
+    const-string v0, "cos-ifs"
+
+    const/4 v1, 0x0
+
+    invoke-virtual {p0, v0, v1}, Landroid/content/Context;->getSharedPreferences(Ljava/lang/String;I)Landroid/content/SharedPreferences;
+
+    move-result-object v0
+
+    const-string v1, "targets"
+
+    const-string v2, ""
+
+    invoke-interface {v0, v1, v2}, Landroid/content/SharedPreferences;->getString(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+
+    move-result-object v0
+
+    const-string v1, ","
+
+    invoke-virtual {v0, v1}, Ljava/lang/String;->split(Ljava/lang/String;)[Ljava/lang/String;
+
+    move-result-object v0
+
+    return-object v0
+.end method
+
+# Which package should receive the forwarded intent?  Returns null when nothing
+# suitable is installed (or nothing is visible to us).
+.method public pickTarget()Ljava/lang/String;
+    .locals 12
+
+    # List<ResolveInfo> cands = getPackageManager().queryIntentActivities(probeIntent(), 0);
     invoke-virtual {p0}, Landroid/app/Activity;->getPackageManager()Landroid/content/pm/PackageManager;
+
+    move-result-object v0
+
+    invoke-virtual {p0}, Lcom/android/packageinstaller/ForwardActivity;->probeIntent()Landroid/content/Intent;
 
     move-result-object v1
 
     const/4 v2, 0x0
 
-    invoke-virtual {v1, v0, v2}, Landroid/content/pm/PackageManager;->queryIntentActivities(Landroid/content/Intent;I)Ljava/util/List;
+    invoke-virtual {v0, v1, v2}, Landroid/content/pm/PackageManager;->queryIntentActivities(Landroid/content/Intent;I)Ljava/util/List;
 
     move-result-object v0
 
@@ -162,7 +206,35 @@
 
     move-result v3
 
-    # for (String p : PREFERRED) if (pkgs.contains(p)) return p;
+    # 1. the user's saved list wins
+    invoke-virtual {p0}, Lcom/android/packageinstaller/ForwardActivity;->readSavedTargets()[Ljava/lang/String;
+
+    move-result-object v7
+
+    array-length v8, v7
+
+    const/4 v9, 0x0
+
+    :sloop
+    if-ge v9, v8, :sloop_end
+
+    aget-object v10, v7, v9
+
+    invoke-virtual {v1, v10}, Ljava/util/ArrayList;->contains(Ljava/lang/Object;)Z
+
+    move-result v11
+
+    if-eqz v11, :sloop_next
+
+    return-object v10
+
+    :sloop_next
+    add-int/lit8 v9, v9, 0x1
+
+    goto :sloop
+
+    # 2. then the built-in preference list
+    :sloop_end
     sget-object v2, Lcom/android/packageinstaller/ForwardActivity;->PREFERRED:[Ljava/lang/String;
 
     array-length v3, v2
@@ -187,7 +259,7 @@
 
     goto :ploop
 
-    # if (pkgs.size() == 1) return pkgs.get(0);
+    # 3. then a sole candidate
     :ploop_end
     invoke-virtual {v1}, Ljava/util/ArrayList;->size()I
 
