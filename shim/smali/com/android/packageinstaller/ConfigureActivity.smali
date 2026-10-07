@@ -187,15 +187,17 @@
 
     # skip ourselves
     #
-    # Both branches below are "jump past the emit when the answer is true", so the
-    # opcode must match the polarity of the value in v7:
-    #   String.equals   -> 1 means "yes, that is us"      -> if-eqz
-    #   ArrayList.contains -> 1 means "yes, already seen" -> if-nez
-    # v0.1 through v0.3 had these two swapped (equals guarded with if-nez, contains with
-    # if-eqz). Every candidate therefore failed the first test and was skipped, the "seen"
-    # list stayed empty, and the WebUI showed no installers at all -- while the state file
-    # was still written, so it looked like a discovery/permission problem instead of a
-    # logic inversion. build/audit_smali.py now pins both opcodes.
+    # `if-nez` branches when v7 != 0, and both predicates below are true (non-zero)
+    # exactly when the emit must be skipped, so BOTH branches are if-nez:
+    #   String.equals      -> 1 means "yes, that is us"
+    #   ArrayList.contains -> 1 means "yes, already emitted"
+    #
+    # v0.1 through v0.3 had the contains branch as if-eqz, which inverts it: it skipped
+    # every package that had NOT been seen yet. `seen` therefore stayed empty, no candidate
+    # was ever emitted, and the WebUI listed no installers -- while the state file was still
+    # written with a valid "selected=" line, because the write happens after the loop. That
+    # made it look like a package-visibility or permission problem rather than an inverted
+    # branch. build/audit_smali.py now pins both opcodes.
     invoke-virtual {p0}, Landroid/app/Activity;->getPackageName()Ljava/lang/String;
 
     move-result-object v7
@@ -204,7 +206,7 @@
 
     move-result v7
 
-    if-eqz v7, :loop_next
+    if-nez v7, :loop_next
 
     # skip an already emitted package
     invoke-virtual {v3, v6}, Ljava/util/ArrayList;->contains(Ljava/lang/Object;)Z

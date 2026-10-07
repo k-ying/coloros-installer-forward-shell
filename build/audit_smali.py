@@ -17,15 +17,23 @@ and are skipped -- which is fine, because we only ever emit those correctly by h
 
 Check 2 -- branch polarity of the candidate-enumeration loop
 ------------------------------------------------------------
-In ConfigureActivity.writeStateFile() each filter branch jumps PAST the emit when its
-answer is true, so the opcode has to match the polarity of the value:
-    String.equals(pkg, ours)     -> 1 means "that is us"      -> if-eqz
-    ArrayList.contains(seen,pkg) -> 1 means "already emitted" -> if-nez
-Version 0.3 (and 0.1, 0.2) had these two swapped. Every candidate then failed the first
-branch, `seen` stayed empty, and the WebUI listed no installers -- while the state file
-was still written with a valid "selected=" line, so it looked like a package-visibility or
-permission problem rather than a one-opcode inversion. Only dumping the built APK's dex
-made it visible, because reading the smali source "looks" right until you trace it.
+In ConfigureActivity.writeStateFile() the two filter branches jump PAST the emit when
+their predicate is true, and `if-nez` branches when the value is non-zero -- so BOTH must
+use if-nez, because both predicates return 1 exactly when the emit has to be skipped:
+    String.equals(pkg, ours)     -> 1 means "that is us"
+    ArrayList.contains(seen,pkg) -> 1 means "already emitted"
+Version 0.3 (and 0.1, 0.2) had the contains branch as if-eqz, which inverts it: it skipped
+every package that had NOT been seen yet. `seen` stayed empty, no candidate was ever
+emitted, and the WebUI listed no installers -- while the state file was still written with
+a valid "selected=" line, so it looked like a package-visibility or permission problem
+rather than an inverted branch. Only dumping the built APK's dex made it visible, because
+the smali source "looks" right until you trace the polarity.
+
+This area has now been misread twice: the first attempt at the repair flipped the equals
+branch as well, which is the OPPOSITE bug (it emits us and silently drops every real
+candidate). That was caught by simulating the loop over the device's actual resolve list,
+not by reading it. Hence both opcodes are pinned here, so the next edit gets checked
+instead of eyeballed.
 
 The polarity is therefore pinned here. If the enumeration is ever restructured, update
 this check deliberately instead of deleting it.
@@ -44,7 +52,7 @@ BRANCH_RE = re.compile(r'^\s*(if-(?:eqz|nez|eq|ne|lt|ge|gt|le))\b')
 
 # (anchor that starts the sequence, opcode the following branch must use, what it means)
 POLARITY = [
-    ('Ljava/lang/String;->equals(Ljava/lang/Object;)Z', 'if-eqz',
+    ('Ljava/lang/String;->equals(Ljava/lang/Object;)Z', 'if-nez',
      'equals() == 1 means "we are looking at ourselves", which must skip the emit'),
     ('Ljava/util/ArrayList;->contains(Ljava/lang/Object;)Z', 'if-nez',
      'contains() == 1 means "already emitted", which must skip the emit'),

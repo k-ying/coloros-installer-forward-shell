@@ -282,21 +282,24 @@ Queries:
 而 `cmd package query-activities` 用**同一个 intent** 在 shell/root 下能查到 4 个组件。
 **可见性和 filter 匹配都通** → 问题只能在应用自己的代码里。
 
-**真正的 bug**：`ConfigureActivity.writeStateFile()` 枚举循环里两个分支的**极性互换了**：
+**真正的 bug**：`ConfigureActivity.writeStateFile()` 枚举循环里，**`contains` 那一行的分支极性反了**：
 
 ```smali
 invoke-virtual {v6, v7}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
 move-result v7
-if-nez v7, :loop_next        # v0.3: equals==1（是自己）却被放行，!=自己 反而跳过
-...
+if-nez v7, :loop_next        # equals==1（是自己）→ 跳过 emit   ← 这一行本来就是对的
+
 invoke-virtual {v3, v6}, Ljava/util/ArrayList;->contains(Ljava/lang/Object;)Z
 move-result v7
-if-eqz v7, :loop_next        # v0.3: contains==0（没记录过）反而跳过
+if-eqz v7, :loop_next        # v0.3 的 BUG：contains==0（还没输出过）反而跳过 emit
 ```
 
-正确极性是 `equals → if-eqz`、`contains → if-nez`（两行都跳转到 `:loop_next`，即"跳过 emit"）。
-错版的效果是：**每个候选都在第一道检查就被丢掉**，`seen` 永远为空，于是零候选 —— 与观察完全一致。
-v0.1 / v0.2 / v0.3 都带这个 bug。
+`:loop_next` 就是"跳过 emit、进入下一轮"。`if-nez` 表示"值非 0 就跳"，而 `contains` 返回 1
+恰好表示"已经输出过、该跳过"，所以这里必须是 `if-nez`。错版把判据取反，于是**每个还没见过的候选
+都在第二道检查上被丢掉**，`seen` 永远为空 → 零候选 —— 与观察完全一致。v0.1 / v0.2 / v0.3 都带这个 bug。
+
+**注意：`equals` 那一行原本是对的。** 两行的正确写法**都是 `if-nez`**（两个谓词返回 1 都表示
+"该跳过 emit"）。这一点下面教训 5 还会再提。
 
 **怎么才看出来的**：读 smali 源码"看着是对的"，是**把真机上跑的那个 APK 反编译出来**才发现的：
 
@@ -307,7 +310,8 @@ grep -n -A6 'ArrayList;->contains' /tmp/dec/smali/.../ConfigureActivity.smali
 
 **为什么机器校验没拦住**：`audit_smali.py` 当时只检查 invoke opcode 与可见性，不检查分支极性。
 现在加了**第二道检查**：把 `writeStateFile()` 里 `equals` / `contains` 之后紧跟的分支 opcode
-钉死，并做过反证测试（注入错误极性 → 精确报出文件/行号/应有 opcode → 退出码 1）。
+都钉成 `if-nez`，并对**两行各自**做过反证测试（注入错误极性 → 精确报出文件/行号/应有 opcode
+→ 退出码 1）。
 这道检查**刻意只扫 `writeStateFile()` 这一个方法** —— `contains` 的极性是上下文相关的：
 `ForwardActivity.pickTarget()` 里 `pkgs.contains(pkg)` 返回 1 表示"这确实是个候选包"，
 那里用 `if-eqz` 是**对的**，全局扫描会误报，而误报会让人开始忽略这道检查。
@@ -326,6 +330,21 @@ grep -n -A6 'ArrayList;->contains' /tmp/dec/smali/.../ConfigureActivity.smali
    ```
 4. 顺带记录：**v0.2 开机循环没有在 dropbox 里留下任何 `system_server_crash`**，所以元凶仍是
    未定（§11）。两条改动只能继续一起回退。
+5. **修取反 bug 的时候我自己又改错了一次，而且差点就这么提交了。** 当时我判断"两行都反了"，
+   于是把 `equals` 那行从（本来正确的）`if-nez` 改成了 `if-eqz` —— 那是**相反方向的同一个 bug**：
+   会把自己当候选、把所有真实候选丢掉。抓到它的不是反证测试，而是**拿真机真实的 4 条候选数据
+   把循环模拟跑了一遍**：
+
+   ```
+   v0.3 (equals if-nez, contains if-eqz): []
+   我改错的版本 (eqz, nez)             : ['com.android.packageinstaller']   ← 只有自己
+   v0.4 正确 (nez, nez)                : [3 个真实候选]
+   ```
+
+   这里有个更值得记住的点：**反证测试只能证明"校验与我脑中的理解一致"，证明不了理解本身正确**。
+   当时 `audit_smali.py` 的极性表和我的错误理解完全一致，所以两个方向的反证都"通过"了。
+   对布尔极性这类东西，**必须用真实数据把逻辑跑一遍**，光做注入式反证是不够的。
+   （上面的模拟脚本就是 §12 里那段 Python，改几个字符即可复用。）
 
 **v0.4 验收命令**（刷入并重启后，只读）：
 
