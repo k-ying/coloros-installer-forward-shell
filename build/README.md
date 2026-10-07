@@ -83,6 +83,16 @@ opcode 和方法的可见性是否匹配 —— `private` 方法必须用 `invok
 成"没有候选安装器"—— 而且**任何地方都不报错**。不做机器校验，只有刷一次机才会暴露。
 （该脚本自己也做过反证测试：把 bug 注入回去，它会精确报出文件、行号和应有的 opcode。）
 
+同一个脚本还有**第二道检查：候选枚举循环的分支极性。** `writeStateFile()` 里
+`String.equals` 的结果必须用 `if-eqz` 消费、`ArrayList.contains` 的结果必须用 `if-nez`
+（两者都是"为真就跳过 emit"）。0.3 及之前这两行**互换了极性**，于是每个候选都在第一道检查上被
+丢掉、`seen` 永远为空 → WebUI 永远没有候选，而状态文件却照常写成 `selected=`，
+**看起来像包可见性或权限问题**。同样做过反证测试。
+
+这道检查**刻意只扫 `writeStateFile()` 一个方法**：`contains` 的极性是上下文相关的 ——
+`ForwardActivity.pickTarget()` 里 `pkgs.contains(pkg)==1` 表示"这确实是候选包"，
+那里用 `if-eqz` 是**对的**。全局扫描会误报，而误报会让人开始忽略这道检查。
+
 **第二道：`build/verify_shim.py`（构建最后一步）。** 它直接解析**刚产出的 APK 的二进制 manifest**
 并断言这些不变量：
 

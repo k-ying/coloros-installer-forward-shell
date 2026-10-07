@@ -186,24 +186,30 @@ ForwardShell 是另一条路。**两者不能同时启用** —— 都会占用 
 
 1. ~~**[先验证]** 用户版 InstallerX 的 Root 模式~~ → **已验证**（实测：可用、速度与系统模式体感相当、没有逐次确认弹窗）。
 2. ~~**打通构建**~~ → **已完成**。手写 smali 工程（零 res）→ `apktool b` → 对齐 → `graftsig.py` 嫁接。
-3. ~~**打成模块**~~ → **已完成**（`cos-ifs-module-v0.1.zip`）。真机开机验证**待用户执行**。
-4. ~~**转发逻辑**~~ → **已完成**：intent 复制 + `setComponent(null)` + `setPackage` + try/catch 包住启动。
-5. ~~**自动发现 + 优先级列表**~~ → **已完成**：保存列表 → 内置 `PREFERRED` → 唯一候选 → null（此时回退到写死的目标包）。
+3. ~~**打成模块**~~ → **已完成**。**v0.3 真机验证通过**：ColorOS 17 / PLK110 正常开机，且
+   `ls -l /system_ext/priv-app/OppoPackageInstaller/` 显示的确实是壳（16727 字节），
+   `dumpsys package` 也按我们的值解析（`versionCode=17000001`）。**架构成立**。
+4. ~~**转发逻辑**~~ → **已完成并真机验证**：intent 复制 + `setComponent(null)` + `setPackage` + try/catch。
+   装上 InstallerX 后 NP管理器 触发的安装确实被转发过去了。
+5. ~~**自动发现 + 优先级列表**~~ → **已完成并真机验证**（转发侧）：保存列表 → 内置 `PREFERRED`
+   → 唯一候选 → null（回退到写死的目标包）。**枚举侧的显示 bug 见 §12，v0.4 修复。**
 6. ~~**配置存储 + `ConfigureActivity`**~~ → **已完成**（签名级权限保护）。
    ~~**WebUI**~~ → **已完成**（`module/webroot/index.html`，自动搜索 + 勾选，显示顺序即优先级；
    还会保留"已选但本次没发现"的包）。秘密代码入口**未做** —— v1 的图形界面只有 WebUI；
    没有 WebView 桥的管理器可以用 `am start` 配置（README 有写）。
 7. **未做**：「目标没装」时的内置兜底安装器（见 §8.1）。
 
-**全部待真机验证事项**：
+**真机验证状态**：
 
-- 开机自检是否通过（组件计数已在静态层面核对，但没上过机）
-- `cmp=com.android.packageinstaller/.InstallStart` 能否被 NP管理器 成功调用
-- 转发过去之后 InstallerX 是否真的走 Root 模式
-- content URI 授权：现在已经**显式重授** —— `getData()` 加上 `ClipData` 的每一项，只在 scheme 是
-  `content` 且我们确实持有授权时才授，整段 best-effort（失败只记日志，不崩）；转发的 intent 另外带上
-  读权限 flag 作为第二道保险。真机上要确认的是**多文件分享**（`ClipData` 多条）时目标能否读到全部 URI。
-- 当前 KernelSU 管理器版本上 `ksu.exec` 桥是否可用（WebUI 依赖它）
+- ~~开机自检是否通过~~ → **通过**（v0.3，ColorOS 17 / PLK110）
+- ~~`cmp=com.android.packageinstaller/.InstallStart` 能否被 NP管理器 成功调用~~ → **通过**
+- ~~转发过去之后 InstallerX 是否真的走 Root 模式~~ → **通过**
+- ~~当前 KernelSU 管理器版本上 `ksu.exec` 桥是否可用~~ → **可用**（状态文件确实被写出来了）
+- **待验证**：`cos-ifs.txt` 里能否列出候选安装器（v0.4 的修复目标，验收命令见 §12）
+- **待验证**：content URI 授权在**多文件分享**（`ClipData` 多条）时目标能否读到全部 URI——
+  现在已**显式重授**：`getData()` 加上 `ClipData` 的每一项，只在 scheme 是 `content`
+  且我们确实持有授权时才授，整段 best-effort（失败只记日志，不崩）；转发的 intent 另外带上
+  读权限 flag 作为第二道保险。
 
 ---
 
@@ -236,3 +242,98 @@ ForwardShell 是另一条路。**两者不能同时启用** —— 都会占用 
 （`cmd package resolve-activity …`），把**组件名**通过 `am start --es components …` 交给壳，
 壳用 `setComponent()` 转发。**带显式 `ComponentName` 的 intent 完全不受包可见性过滤** ——
 这样既不需要在 `<queries>` 里声明 scheme，也不需要那条权限。等核心链路真机跑通再实现。
+
+**后续更正（见 §12）**：包可见性其实**一直没有成为障碍**。真机 `dumpsys` 显示系统会把手写 mimeType
+的 `<queries>` 规范化成 `dat=content://*/...`，于是 InstallerX 与 Universal Installer **本来就在我们的
+可见列表里**。当时之所以怀疑可见性，是被一个逻辑取反 bug 误导了（§12）。所以"WebUI 代解析组件"
+这条优化**不是必需项**，只是可选的健壮性提升。
+
+---
+
+## 12. 事故记录：候选安装器列表恒为空（v0.4 修复，2026-10-07）
+
+**现象**：v0.3 真机上，壳能开机、能挂载、装上 InstallerX 后能正常转发安装；但 WebUI 的候选列表
+**永远是空的**，状态文件内容恒为：
+
+```
+selected=
+```
+
+（文件被正常写出、权限正常、`selected=` 行存在 —— 所以看起来是"枚举没查到东西"。）
+
+**被排除的假设**：一开始判断是**包可见性**（我们的 `<queries>` 里没写 scheme，而目标 filter 要求
+`scheme=content|file`）。两条真机证据把这个假设推翻了：
+
+```sh
+su -c 'dumpsys package com.android.packageinstaller' | sed -n '/^Queries:/,/queryable via interaction/p'
+```
+
+```
+    queriesIntents=[Intent { act=android.intent.action.INSTALL_PACKAGE dat=content://*/...
+                    , Intent { act=android.intent.action.VIEW dat=content://*/... }]
+Queries:
+  queries via component:
+    com.android.packageinstaller:
+      app.pwhs.universalinstaller      ← 本来就看得到
+      com.rosan.installer.x.revived    ← 本来就看得到
+```
+
+系统把只写了 `mimeType` 的声明规范化成了 `dat=content://*/...`，两个安装器都在可见列表里；
+而 `cmd package query-activities` 用**同一个 intent** 在 shell/root 下能查到 4 个组件。
+**可见性和 filter 匹配都通** → 问题只能在应用自己的代码里。
+
+**真正的 bug**：`ConfigureActivity.writeStateFile()` 枚举循环里两个分支的**极性互换了**：
+
+```smali
+invoke-virtual {v6, v7}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
+move-result v7
+if-nez v7, :loop_next        # v0.3: equals==1（是自己）却被放行，!=自己 反而跳过
+...
+invoke-virtual {v3, v6}, Ljava/util/ArrayList;->contains(Ljava/lang/Object;)Z
+move-result v7
+if-eqz v7, :loop_next        # v0.3: contains==0（没记录过）反而跳过
+```
+
+正确极性是 `equals → if-eqz`、`contains → if-nez`（两行都跳转到 `:loop_next`，即"跳过 emit"）。
+错版的效果是：**每个候选都在第一道检查就被丢掉**，`seen` 永远为空，于是零候选 —— 与观察完全一致。
+v0.1 / v0.2 / v0.3 都带这个 bug。
+
+**怎么才看出来的**：读 smali 源码"看着是对的"，是**把真机上跑的那个 APK 反编译出来**才发现的：
+
+```sh
+java -jar apktool.jar d -f -o /tmp/dec dist/cos-ifs.apk
+grep -n -A6 'ArrayList;->contains' /tmp/dec/smali/.../ConfigureActivity.smali
+```
+
+**为什么机器校验没拦住**：`audit_smali.py` 当时只检查 invoke opcode 与可见性，不检查分支极性。
+现在加了**第二道检查**：把 `writeStateFile()` 里 `equals` / `contains` 之后紧跟的分支 opcode
+钉死，并做过反证测试（注入错误极性 → 精确报出文件/行号/应有 opcode → 退出码 1）。
+这道检查**刻意只扫 `writeStateFile()` 这一个方法** —— `contains` 的极性是上下文相关的：
+`ForwardActivity.pickTarget()` 里 `pkgs.contains(pkg)` 返回 1 表示"这确实是个候选包"，
+那里用 `if-eqz` 是**对的**，全局扫描会误报，而误报会让人开始忽略这道检查。
+
+**教训**：
+
+1. **取反类 bug 不会汇编报错、不会崩、不写日志**，只在"结果为空"上体现，而且极容易被误判成
+   权限/可见性这类"环境问题"。凡是"查询结果恒为空"的现象，都要把**代码逻辑本身**列入嫌疑，
+   并且用**产物**（反编译 dex）而不是源码去确认。
+2. **校验要能反证，且要收紧到目标方法**。宽泛的规则会误报，误报的校验等于没有校验。
+3. **崩溃证据在 `/data/system/dropbox/` 跨重启保留**（logcat 缓冲区重启就没了）。这次就在里面
+   挖到了 v0.1 那次的 `VerifyError`（`writeStateFile` 调 private `probeIntent`，整个类被校验器
+   拒绝）—— 印证了 §11 的崩溃修复是对的。排查时应该先看这里：
+   ```sh
+   adb shell 'su -c "ls -lt /data/system/dropbox/ | head -30"'
+   ```
+4. 顺带记录：**v0.2 开机循环没有在 dropbox 里留下任何 `system_server_crash`**，所以元凶仍是
+   未定（§11）。两条改动只能继续一起回退。
+
+**v0.4 验收命令**（刷入并重启后，只读）：
+
+```sh
+su -c 'am start -n com.android.packageinstaller/.Configure --ez refresh true'
+su -c 'cat /data/data/com.android.packageinstaller/files/cos-ifs.txt'
+```
+
+期望：**至少 1 行 `candidate=`**。本机实测应有 3 行（`app.pwhs.universalinstaller`、
+`com.rosan.installer.x.revived`、`top.bienvenido.saas.i18n`）。若仍为空，下一步就是查
+`queryIntentActivities` 在本进程内的返回值（在 `writeStateFile` 里打一行 `Log.i` 记录 list 尺寸）。
