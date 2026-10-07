@@ -214,6 +214,10 @@ ForwardShell 是另一条路。**两者不能同时启用** —— 都会占用 
   **已验证**。v0.4 真机输出 3 行，标签也对：
   `app.pwhs.universalinstaller|软件包安装程序`、`com.rosan.installer.x.revived|InstallerX Revived`、
   `top.bienvenido.saas.i18n|元萝卜`。
+- ~~**待验证**：卸载（`UNINSTALL_PACKAGE`）路径~~ → **已验证**（真机）。第一次卸载可能弹出**选择器**
+  （别的 app 也声明了 `UNINSTALL_PACKAGE`），**勾「默认」并选 COS-IFS** 即可；之后卸载直接走转发，
+  交给 WebUI 里选定的那个安装器。机制上不意外：`ForwardUninstallActivity` 直接继承 `ForwardActivity`，
+  卸载与安装走同一条转发路径、同一个目标。
 - **待验证**：content URI 授权在**多文件分享**（`ClipData` 多条）时目标能否读到全部 URI——
   现在已**显式重授**：`getData()` 加上 `ClipData` 的每一项，只在 scheme 是 `content`
   且我们确实持有授权时才授，整段 best-effort（失败只记日志，不崩）；转发的 intent 另外带上

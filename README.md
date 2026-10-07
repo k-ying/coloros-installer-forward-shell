@@ -34,9 +34,11 @@
 - ✅ WebUI 能列出机器上的候选安装器（实测 3 个：InstallerX Revived / Universal Installer / 元萝卜），标签正确
 - ✅ 能在 WebUI 里**切换**转发目标并生效
 - ✅ 候选枚举与 WebUI 读取都修好了：文件里有什么，界面就显示什么
+- ✅ **卸载**也已实测：第一次卸载可能弹出**选择器**（别的 app 也声明了 `UNINSTALL_PACKAGE`），
+  **勾上「默认」并选 COS-IFS** 即可；之后卸载都会直接走转发，交给你在 WebUI 里选定的那个安装器
 
-**尚未实测**：卸载（`UNINSTALL_PACKAGE`）路径的真机验证 —— 组件层面已静态核对（恰好 1 个组件匹配），
-但没有真的点过一次卸载。
+**尚未实测**：content URI 授权在**多文件分享**（`ClipData` 多条）时，目标能否读到全部 URI。
+组件层面已静态核对（恰好 1 个组件匹配卸载器查询）。
 
 ## 要求
 
@@ -88,6 +90,8 @@ su -c 'ls -l /system_ext/priv-app/OppoPackageInstaller/'
 安装第 3 步就是全部操作。几条补充：
 
 - **什么都没选** → 使用内置默认 `com.rosan.installer.x.revived`（InstallerX Revived）
+- **安装和卸载用的是同一个目标**：卸载走的 `ForwardUninstallActivity` 继承同一套转发逻辑，
+  所以这里选的安装器也负责卸载
 - 这是**单选**，不是优先级列表：你选了谁，就转发给谁。目标已被卸载时会弹 Toast 提示，
   **不会**偷偷改用别的 app（系统安装器这个位置，确定性比容错重要）
 - 保存后即时生效，**不需要重启**
