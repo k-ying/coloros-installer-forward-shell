@@ -68,12 +68,13 @@ su -c 'sha256sum /system_ext/priv-app/OppoPackageInstaller/OppoPackageInstaller.
 
 ## 安装
 
-1. 先装元模块 **Hybrid Mount** 并重启。
+1. 装元模块 **Hybrid Mount** → 重启。
 2. 刷入 `cos-ifs-module-v0.7.zip`（Releases 页），然后打开 **Hybrid Mount 的 WebUI →「模块」页 → 点本模块
    → 后端设为 VFS → 点保存 → 重启**即可。**不要**动全局默认后端。
-   > 若这时 Hybrid Mount 的 WebUI 进不去，先重启一次再设。（**任何模块更新都必须重启**才会生效。）
+3. 重启后进入**本模块的 WebUI**，点「刷新」拉出候选安装器，**选一个**，点「保存」即可 —— **无需再重启**。
+   > 刚刷完还没重启时，本模块自己的 WebUI 是进不去的（模块尚未生效），所以"选目标"这一步放在重启之后。
 
-3. 验证：
+验证（可选，确认壳真的挂上了）：
 
 ```sh
 su -c 'ls -l /system_ext/priv-app/OppoPackageInstaller/'
@@ -84,11 +85,12 @@ su -c 'ls -l /system_ext/priv-app/OppoPackageInstaller/'
 
 ## 选择转发给哪个安装器
 
-打开 **KernelSU 管理器 → 模块 → COS-IFS → WebUI**，它会列出壳枚举出来的候选安装器，**单选一个**保存。
+安装第 3 步就是全部操作。几条补充：
 
 - **什么都没选** → 使用内置默认 `com.rosan.installer.x.revived`（InstallerX Revived）
 - 这是**单选**，不是优先级列表：你选了谁，就转发给谁。目标已被卸载时会弹 Toast 提示，
   **不会**偷偷改用别的 app（系统安装器这个位置，确定性比容错重要）
+- 保存后即时生效，**不需要重启**
 
 不想用 WebUI（或管理器没有 WebView 桥）时可以直接命令壳：
 
