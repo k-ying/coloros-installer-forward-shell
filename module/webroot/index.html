@@ -117,7 +117,7 @@ details.card> .pre{margin:0 14px 14px}
   <div class="appbar-in">
     <div class="titles">
       <h1>COS-IFS 安装器转发</h1>
-      <p class="sub">选择要转发的第三方安装器 · pick installers to forward to</p>
+      <p class="sub">选择要转发的第三方安装器 · tap to pick</p>
     </div>
     <span id="bridgeBadge" class="badge" title="root 执行通道">检测中…</span>
   </div>
@@ -196,6 +196,7 @@ details.card> .pre{margin:0 14px 14px}
   var REFRESH_CMD = 'am start -n ' + CONFIGURE + ' --ez refresh true';
   var PKG_RE = /^[A-Za-z0-9_.]+$/;
   var REFRESH_TIMEOUT_MS = 2000;   /* SPEC: 壳是异步写文件，轮询约 2s */
+  var SAVE_CONFIRM_MS = 1500;      /* 保存后确认壳已写回，最多等这么久 */
   var POLL_MS = 200;
   var FIRST_DELAY_MS = 300;
   var BRIDGE_WAIT_MS = 3000;
@@ -380,6 +381,28 @@ details.card> .pre{margin:0 14px 14px}
         if (last.parsed.candidates.length > 0 && (!requireChange || changed)) return last;
       }
       if (Date.now() >= deadline) return last;
+      await sleep(POLL_MS);
+    }
+  }
+
+  /* 保存后的确认：文件里的 selected 已等于刚才提交的内容，或内容确实变了。 */
+  function sameList(a, b) {
+    if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+  }
+
+  async function waitForSelection(expected, before, timeoutMs) {
+    var deadline = Date.now() + timeoutMs;
+    var last = null;
+    if (FIRST_DELAY_MS) await sleep(FIRST_DELAY_MS);
+    for (;;) {
+      last = await readState();
+      if (!last.failed) {
+        var changed = (before !== '' && last.raw !== before);
+        if (sameList(last.parsed.selected, expected) || changed) { last.matched = true; return last; }
+      }
+      if (Date.now() >= deadline) { if (last) last.matched = false; return last; }
       await sleep(POLL_MS);
     }
   }
@@ -661,21 +684,15 @@ details.card> .pre{margin:0 14px 14px}
     }
 
     var before = model.raw;
-    var r = await pollState({
-      before: before,
-      requireChange: before !== '',
-      timeoutMs: REFRESH_TIMEOUT_MS,
-      firstDelayMs: FIRST_DELAY_MS
-    });
+    var r = await waitForSelection(pkgs, before, SAVE_CONFIRM_MS);
     setBusy(false);
     applyRead(r);
-    var now = model.selected.length;
-    var tail = now === pkgs.length
-      ? ''
-      : '（重新读取时文件里是 ' + now + ' 个：壳可能还没写完，可点「刷新」再看）';
+    var note = r.matched
+      ? '已重新读取并确认。'
+      : '（重新读取时文件里 selected 有 ' + model.selected.length + ' 个：壳可能还没写完，可点「刷新」再看）';
     setStatus({
       kind: 'ok',
-      text: '已保存 ' + pkgs.length + ' 个目标，按显示顺序。' + tail
+      text: '已保存 ' + pkgs.length + ' 个目标，按显示顺序。' + note
     });
     toast('已保存 / Saved', 'ok');
   }

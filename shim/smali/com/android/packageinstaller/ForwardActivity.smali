@@ -349,6 +349,16 @@
 
     move-result-object v4
 
+    # Hand the target explicit read access to every content URI, and make sure the
+    # forwarded intent carries the flag too so the system grants on our behalf.
+    invoke-direct {p0, v2, v0}, Lcom/android/packageinstaller/ForwardActivity;->regrantUris(Ljava/lang/String;Landroid/content/Intent;)V
+
+    const/4 v3, 0x1
+
+    invoke-virtual {v1, v3}, Landroid/content/Intent;->addFlags(I)Landroid/content/Intent;
+
+    move-result-object v4
+
     :try_start
     invoke-virtual {p0, v1}, Landroid/app/Activity;->startActivity(Landroid/content/Intent;)V
     :try_end
@@ -404,5 +414,103 @@
     :no_intent
     invoke-virtual {p0}, Landroid/app/Activity;->finish()V
 
+    return-void
+.end method
+
+# A content URI the caller granted to us does NOT automatically carry over to the new
+# target, so grant it explicitly. getData() covers the single-URI case; ClipData covers
+# "share several files at once", which is where a naive implementation silently loses
+# access. The forwarded intent also carries FLAG_GRANT_READ_URI_PERMISSION, so the
+# system re-issues the grant on our behalf as a second line of defence.
+#
+# Every grant here is best-effort: an intent may carry file:// URIs, or URIs we were
+# never granted, and grantUriPermission throws in both cases. Failing to re-grant is not
+# fatal (the flag above still applies), so this logs and moves on rather than risking a
+# crash on what is supposed to be an invisible hop.
+.method private regrantUris(Ljava/lang/String;Landroid/content/Intent;)V
+    .locals 6
+
+    if-eqz p2, :done
+
+    invoke-virtual {p2}, Landroid/content/Intent;->getData()Landroid/net/Uri;
+
+    move-result-object v0
+
+    if-eqz v0, :clip
+
+    invoke-direct {p0, p1, v0}, Lcom/android/packageinstaller/ForwardActivity;->tryGrant(Ljava/lang/String;Landroid/net/Uri;)V
+
+    :clip
+    invoke-virtual {p2}, Landroid/content/Intent;->getClipData()Landroid/content/ClipData;
+
+    move-result-object v1
+
+    if-eqz v1, :done
+
+    invoke-virtual {v1}, Landroid/content/ClipData;->getItemCount()I
+
+    move-result v2
+
+    const/4 v3, 0x0
+
+    :loop
+    if-ge v3, v2, :done
+
+    invoke-virtual {v1, v3}, Landroid/content/ClipData;->getItemAt(I)Landroid/content/ClipData$Item;
+
+    move-result-object v4
+
+    invoke-virtual {v4}, Landroid/content/ClipData$Item;->getUri()Landroid/net/Uri;
+
+    move-result-object v4
+
+    if-eqz v4, :next
+
+    invoke-direct {p0, p1, v4}, Lcom/android/packageinstaller/ForwardActivity;->tryGrant(Ljava/lang/String;Landroid/net/Uri;)V
+
+    :next
+    add-int/lit8 v3, v3, 0x1
+
+    goto :loop
+
+    :done
+    return-void
+.end method
+
+.method private tryGrant(Ljava/lang/String;Landroid/net/Uri;)V
+    .locals 4
+
+    # Only content:// URIs can be granted at all.
+    invoke-virtual {p2}, Landroid/net/Uri;->getScheme()Ljava/lang/String;
+
+    move-result-object v0
+
+    const-string v1, "content"
+
+    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
+
+    move-result v2
+
+    if-eqz v2, :done
+
+    :try_start
+    const/4 v2, 0x1
+
+    invoke-virtual {p0, p1, p2, v2}, Landroid/content/Context;->grantUriPermission(Ljava/lang/String;Landroid/net/Uri;I)V
+    :try_end
+    .catch Ljava/lang/Exception; {:try_start .. :try_end} :catch
+
+    return-void
+
+    :catch
+    const-string v2, "COS-IFS"
+
+    const-string v3, "could not re-grant a content URI; the forwarded flag still applies"
+
+    invoke-static {v2, v3}, Landroid/util/Log;->w(Ljava/lang/String;Ljava/lang/String;)I
+
+    move-result v3
+
+    :done
     return-void
 .end method

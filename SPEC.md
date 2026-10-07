@@ -200,5 +200,7 @@ ForwardShell 是另一条路。**两者不能同时启用** —— 都会占用 
 - 开机自检是否通过（组件计数已在静态层面核对，但没上过机）
 - `cmp=com.android.packageinstaller/.InstallStart` 能否被 NP管理器 成功调用
 - 转发过去之后 InstallerX 是否真的走 Root 模式
-- content URI 授权是否需要显式 `grantUriPermission`（目前依赖 flag 随 intent 复制传递）
+- content URI 授权：现在已经**显式重授** —— `getData()` 加上 `ClipData` 的每一项，只在 scheme 是
+  `content` 且我们确实持有授权时才授，整段 best-effort（失败只记日志，不崩）；转发的 intent 另外带上
+  读权限 flag 作为第二道保险。真机上要确认的是**多文件分享**（`ClipData` 多条）时目标能否读到全部 URI。
 - 当前 KernelSU 管理器版本上 `ksu.exec` 桥是否可用（WebUI 依赖它）
