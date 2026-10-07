@@ -226,15 +226,19 @@ def main(argv):
             raise Fail(f'{label} must be filterless')
     print(f'  {CONFIGURE_ALIAS} -> {CONFIGURE}, both gated by the signature permission')
 
-    # 6. no permissions requested at all
-    ups = [c.get('name') for c in root.kids if c.tag.startswith('uses-permission')]
-    if ups:
-        raise Fail(f'the shell must request no permissions, found {ups}')
+    # 6. permissions: exactly one normal-protection permission, and nothing else.
+    # QUERY_ALL_PACKAGES is `normal`, so it carries no privapp allowlist exposure -- which
+    # is the actual boot hazard this check exists for. Anything else would be a regression.
+    ALLOWED_PERMS = {'android.permission.QUERY_ALL_PACKAGES'}
+    ups = {c.get('name') for c in root.kids if c.tag.startswith('uses-permission')}
+    if ups != ALLOWED_PERMS:
+        raise Fail(f'the shell must request only {sorted(ALLOWED_PERMS)}, found '
+                   f'{sorted(ups)} -- a privileged permission here is a boot hazard')
     declared = [c.get('name') for c in root.find('permission')]
     if declared != [CONFIGURE_PERM]:
         raise Fail(f'expected exactly one declared permission ({CONFIGURE_PERM}), '
                    f'got {declared}')
-    print('  requests no permissions; declares only the CONFIGURE permission')
+    print('  requests only QUERY_ALL_PACKAGES (normal protection); declares only CONFIGURE')
 
     print('OK: every boot-critical invariant holds')
 

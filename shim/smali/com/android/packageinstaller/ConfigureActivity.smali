@@ -33,7 +33,14 @@
 
 # Must accept exactly the same probe as ForwardActivity, or the WebUI would offer
 # installers the forwarder refuses to use.
-.method private probeIntent()Landroid/content/Intent;
+#
+# Public for a reason that cost a device flash to learn: the call sites in this class use
+# invoke-virtual, and Dalvik requires invoke-direct for a private method. The mismatch is
+# NOT an assembler error -- smali happily assembled it -- it is an IllegalAccessError at
+# runtime, so ConfigureActivity died on entry and never wrote the state file, which showed
+# up as an empty candidate list in the WebUI. build/audit_smali.py now checks every
+# self-call so this cannot ship again.
+.method public probeIntent()Landroid/content/Intent;
     .locals 3
 
     new-instance v0, Landroid/content/Intent;

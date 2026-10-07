@@ -72,7 +72,18 @@ aapt2 只会报一句语焉不详的 `not well-formed (invalid token)`，看不�
 
 ## 构建时的自动断言（为什么不能只靠肉眼）
 
-`build_shim.sh` 最后一步会跑 `build/verify_shim.py`，直接解析**刚产出的 APK 的二进制 manifest**
+有两道机器校验，都会在 `build_shim.sh` 里自动跑。
+
+**第一道：`build/audit_smali.py`（构建一开始就跑）。** 它检查我们自己 smali 里的每一次自调用，
+opcode 和方法的可见性是否匹配 —— `private` 方法必须用 `invoke-direct`，其余用 `invoke-virtual`。
+
+这条规则值得单独写个脚本，是因为**它错了 smali 照样汇编通过**，只在运行时抛
+`IllegalAccessError`。0.1 就是这么发的：`ConfigureActivity` 用 `invoke-virtual` 调用了自己
+`private` 的 `probeIntent()`，于是这个 activity 一进去就崩，状态文件永远写不出来，WebUI 显示
+成"没有候选安装器"—— 而且**任何地方都不报错**。不做机器校验，只有刷一次机才会暴露。
+（该脚本自己也做过反证测试：把 bug 注入回去，它会精确报出文件、行号和应有的 opcode。）
+
+**第二道：`build/verify_shim.py`（构建最后一步）。** 它直接解析**刚产出的 APK 的二进制 manifest**
 并断言这些不变量：
 
 - 包名 / `versionCode` / `versionName` 是钉死的值

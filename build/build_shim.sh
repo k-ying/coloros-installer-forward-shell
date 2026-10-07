@@ -58,6 +58,9 @@ print('manifest pre-flight: no illegal double hyphen')
 PY
 
 # 1) manifest + smali -> APK.
+#    The audit runs first: invoke-virtual on a private method assembles fine and only fails
+#    at runtime, which is how 0.1 shipped a ConfigureActivity that died on entry.
+python3 "$HERE/audit_smali.py" "$SRC/smali"
 #    apktool caches its previous output in <SRC>/build/apk/ and does NOT invalidate that
 #    cache when the smali changes (it just says "smali has not changed"), so drop it
 #    first. This is the same trap the sibling project documents for its own cache.
