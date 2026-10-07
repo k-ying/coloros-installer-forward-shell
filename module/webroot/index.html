@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0f1216" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f3f5f8" media="(prefers-color-scheme: light)">
+<meta name="referrer" content="no-referrer">
+<title>COS-IFS · 安装器转发</title>
+<style>
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none !important}
+:root{
+  --bg:#0f1216;--bg2:#0b0e12;--card:#171c22;--card2:#1f2630;--fg:#e9eef5;
+  --muted:#96a3b2;--line:#2a323d;--line2:#3a4551;--accent:#4c8dff;--accent2:#3b74d8;
+  --ok:#37cf94;--warn:#f0b429;--err:#ff6b6b;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Roboto Mono","Courier New",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif;
+}
+@media (prefers-color-scheme:light){
+  :root{--bg:#f3f5f8;--bg2:#e9edf2;--card:#fff;--card2:#f1f4f8;--fg:#141a21;--muted:#5c6a78;--line:#dde3ea;--line2:#c6cfd9;--accent:#2f6fe4;--accent2:#2559bd;--ok:#12885c;--warn:#a06a00;--err:#c92b2b}
+}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);
+  font-size:16px;line-height:1.5;-webkit-tap-highlight-color:transparent;
+  padding-bottom:calc(84px + env(safe-area-inset-bottom));overscroll-behavior-y:contain;
+}
+h1,h2,h3{margin:0;line-height:1.35}
+h1{font-size:16px;font-weight:700}
+h2{font-size:15px;font-weight:700}
+h3{font-size:13px;font-weight:700}
+.mono{font-family:var(--mono)}
+.small{font-size:12px}
+
+.appbar{position:sticky;top:0;z-index:20;background:var(--bg);border-bottom:1px solid var(--line);
+  padding:calc(10px + env(safe-area-inset-top)) 12px 10px}
+.appbar-in{display:flex;align-items:center;gap:10px;max-width:680px;margin:0 auto}
+.titles{flex:1 1 auto;min-width:0}
+.sub{margin:2px 0 0;font-size:12px;color:var(--muted)}
+.badge{flex:0 0 auto;max-width:44%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-family:var(--mono);font-size:11px;font-weight:600;padding:5px 9px;border-radius:999px;
+  background:var(--card2);color:var(--muted);border:1px solid var(--line)}
+.badge.ok{color:var(--ok);border-color:rgba(55,207,148,.45)}
+.badge.err{color:var(--err);border-color:rgba(255,107,107,.5)}
+
+main{max-width:680px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;margin:12px;padding:14px}
+.card-hd{margin-bottom:6px}
+.hint{margin:4px 0 0;font-size:12.5px;color:var(--muted);word-break:break-word}
+.p{margin:6px 0 0;font-size:14px;word-break:break-word}
+.card.danger{border-color:rgba(255,107,107,.5);background:linear-gradient(180deg,rgba(255,107,107,.10),rgba(0,0,0,0)),var(--card)}
+.status{border-left-width:4px}
+.status.info{border-left-color:var(--line2)}
+.status.ok{border-left-color:var(--ok);border-color:rgba(55,207,148,.35)}
+.status.warn{border-left-color:var(--warn);border-color:rgba(240,180,41,.4)}
+.status.err{border-left-color:var(--err);border-color:rgba(255,107,107,.45)}
+.status .p{margin:0}
+
+.list{margin-top:4px}
+.row{display:flex;align-items:center;gap:12px;min-height:60px;padding:12px 4px;
+  border-top:1px solid var(--line);cursor:pointer}
+.row:first-child{border-top:0}
+.row:active{background:var(--card2)}
+.row input[type=checkbox]{-webkit-appearance:none;appearance:none;flex:0 0 auto;width:26px;height:26px;
+  margin:0;border:2px solid var(--line2);border-radius:8px;background:var(--card2);position:relative}
+.row input[type=checkbox]:checked{background:var(--accent);border-color:var(--accent)}
+.row input[type=checkbox]:checked::after{content:"";position:absolute;left:8px;top:4px;width:7px;height:13px;
+  border:solid #fff;border-width:0 3px 3px 0;transform:rotate(45deg)}
+.row input[type=checkbox]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.rowmain{display:block;flex:1 1 auto;min-width:0}
+.rowlabel{display:block;font-size:16px;font-weight:600;word-break:break-word}
+.rowpkg{display:block;margin-top:2px;font-family:var(--mono);font-size:11.5px;color:var(--muted);word-break:break-all}
+.ord{flex:0 0 auto;display:flex;align-items:center;justify-content:center;min-width:24px;height:24px;
+  padding:0 6px;border:1px solid var(--line);border-radius:999px;color:var(--muted);
+  font-family:var(--mono);font-size:11px;font-weight:600}
+.row-extra .rowlabel{color:var(--muted);font-weight:500}
+
+.btn{flex:1 1 0;min-height:52px;padding:0 14px;border-radius:12px;border:1px solid transparent;
+  font-family:inherit;font-size:16px;font-weight:600;cursor:pointer;touch-action:manipulation;color:var(--fg)}
+.btn.primary{background:var(--accent);color:#fff}
+.btn.primary:active{background:var(--accent2)}
+.btn.ghost{background:var(--card2);border-color:var(--line2)}
+.btn.ghost:active{background:var(--line)}
+.btn:disabled{opacity:.5;cursor:default}
+.btn.wide{display:block;width:100%;flex:0 0 auto;margin-top:10px}
+
+.actionbar{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--bg);
+  border-top:1px solid var(--line);padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
+.actionbar-in{display:flex;gap:10px;max-width:680px;margin:0 auto}
+
+.pre{margin:8px 0 0;padding:10px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;
+  font-family:var(--mono);font-size:12px;line-height:1.45;color:var(--muted);white-space:pre-wrap;
+  word-break:break-word;overflow:auto;max-height:46vh;-webkit-user-select:text;user-select:text}
+.dbg-h{margin-top:12px}
+details.card{padding:0}
+details.card>summary{cursor:pointer;padding:14px;font-size:14px;font-weight:600;list-style:none}
+details.card>summary::-webkit-details-marker{display:none}
+details.card>summary::after{content:"▾";float:right;color:var(--muted)}
+details.card[open]>summary::after{content:"▴"}
+details.card> .pre{margin:0 14px 14px}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));
+  z-index:40;max-width:88vw;padding:10px 16px;border-radius:999px;text-align:center;
+  background:var(--card2);border:1px solid var(--line2);color:var(--fg);font-size:14px;
+  box-shadow:0 8px 24px rgba(0,0,0,.35);opacity:0;transition:opacity .18s;pointer-events:none}
+.toast.show{opacity:1}
+.toast.ok{border-color:rgba(55,207,148,.55)}
+.toast.err{border-color:rgba(255,107,107,.6)}
+.foot .hint{margin-top:6px}
+</style>
+</head>
+<body>
+
+<header class="appbar">
+  <div class="appbar-in">
+    <div class="titles">
+      <h1>COS-IFS 安装器转发</h1>
+      <p class="sub">选择要转发的第三方安装器 · pick installers to forward to</p>
+    </div>
+    <span id="bridgeBadge" class="badge" title="root 执行通道">检测中…</span>
+  </div>
+</header>
+
+<main id="main">
+
+  <section id="bridgeCard" class="card danger" hidden>
+    <h2>无法执行 root 命令</h2>
+    <p id="bridgeMsg" class="p"></p>
+    <button id="btnRetryBridge" class="btn ghost wide" type="button">重新检测 / Retry</button>
+  </section>
+
+  <section id="statusCard" class="card status info" hidden>
+    <p id="statusText" class="p"></p>
+  </section>
+
+  <section id="listCard" class="card" hidden>
+    <div class="card-hd">
+      <h2>候选安装器</h2>
+      <p class="hint">勾选要转发的安装器；列表顺序就是壳的候选顺序，<b>顺序即优先级</b>（从上到下依次尝试）。<br>Order = priority; the shell tries them top-down.</p>
+    </div>
+    <div id="list" class="list"></div>
+  </section>
+
+  <section id="extraCard" class="card" hidden>
+    <div class="card-hd">
+      <h2>已勾选但不在候选列表中</h2>
+      <p class="hint">这些包名出现在 <span class="mono">selected</span> 里，但本次没有对应的 <span class="mono">candidate</span> 行（可能已卸载或对壳不可见）。保持勾选即可保留它们。</p>
+    </div>
+    <div id="extraList" class="list"></div>
+  </section>
+
+  <section id="emptyCard" class="card" hidden>
+    <h2>没有可用的候选安装器</h2>
+    <p class="p">壳还没有写出候选列表，或者这次读取失败了。点下面的「刷新」让壳重新枚举一次，再看原始输出定位问题。</p>
+    <p class="p small mono" id="emptyFile"></p>
+    <button id="btnEmptyRefresh" class="btn primary wide" type="button">刷新 / Refresh</button>
+    <h3 class="dbg-h">原始输出 / raw output</h3>
+    <pre id="emptyRaw" class="pre"></pre>
+  </section>
+
+  <details id="debugCard" class="card" hidden>
+    <summary>调试输出 / debug output</summary>
+    <pre id="debugPre" class="pre"></pre>
+  </details>
+
+  <section class="card foot">
+    <h2>说明 / notes</h2>
+    <p class="hint">状态文件：<span class="mono">/data/data/com.android.packageinstaller/files/cos-ifs.txt</span></p>
+    <p class="hint">保存走 intent（不写文件）：<span class="mono">am start -n com.android.packageinstaller/.Configure --es targets "包名,包名"</span></p>
+    <p class="hint">未勾选任何项时保存空值。<br>Save writes the ticked list, in display order, via <span class="mono">am start</span>.</p>
+  </section>
+
+</main>
+
+<footer class="actionbar">
+  <div class="actionbar-in">
+    <button id="btnSave" class="btn primary" type="button">保存 / Save</button>
+    <button id="btnRefresh" class="btn ghost" type="button">刷新 / Refresh</button>
+  </div>
+</footer>
+
+<div id="toast" class="toast" hidden role="status" aria-live="polite"></div>
+<noscript><p class="card">本页需要 JavaScript。<br>JavaScript is required.</p></noscript>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---- 设备侧约定（不要改）------------------------------------------ */
+  var PKG = 'com.android.packageinstaller';
+  var CONFIGURE = PKG + '/.Configure';
+  var STATE_FILE = '/data/data/' + PKG + '/files/cos-ifs.txt';
+  var READ_CMD = 'cat ' + STATE_FILE;
+  var REFRESH_CMD = 'am start -n ' + CONFIGURE + ' --ez refresh true';
+  var PKG_RE = /^[A-Za-z0-9_.]+$/;
+  var REFRESH_TIMEOUT_MS = 2000;   /* SPEC: 壳是异步写文件，轮询约 2s */
+  var POLL_MS = 200;
+  var FIRST_DELAY_MS = 300;
+  var BRIDGE_WAIT_MS = 3000;
+
+  var bridge = null;               /* {api, name, short} */
+  var busy = false;
+  var toastTimer = null;
+  var els = {};
+
+  var model = {
+    candidates: [],
+    selected: [],
+    extras: [],
+    raw: '',
+    read: null,
+    readError: null,
+    refresh: null,
+    save: null
+  };
+
+  /* ---- 小工具 -------------------------------------------------------- */
+  function $(id) { return document.getElementById(id); }
+
+  function h(tag, attrs, kids) {
+    var n = document.createElement(tag);
+    if (attrs) {
+      for (var k in attrs) {
+        if (!Object.prototype.hasOwnProperty.call(attrs, k)) continue;
+        if (k === 'class') n.className = attrs[k];
+        else if (k === 'text') n.textContent = attrs[k];
+        else n.setAttribute(k, attrs[k]);
+      }
+    }
+    if (kids) for (var i = 0; i < kids.length; i++) n.appendChild(kids[i]);
+    return n;
+  }
+
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  function firstLine(s) {
+    s = String(s === undefined || s === null ? '' : s).trim();
+    var i = s.indexOf('\n');
+    return (i < 0 ? s : s.slice(0, i)).slice(0, 240);
+  }
+
+  function describeError(e) {
+    if (e === undefined || e === null) return '未知错误';
+    if (typeof e === 'string') return e;
+    if (typeof e === 'object') {
+      if (e.message) return String(e.message);
+      try { return JSON.stringify(e); } catch (_) { return String(e); }
+    }
+    return String(e);
+  }
+
+  /* ---- KernelSU WebUI 桥 --------------------------------------------
+     window.ksu.exec(cmd) -> Promise<{errno, stdout, stderr}>（当前 API）
+     window.kernelsu.exec(cmd) 作为旧版回退。两者都做存在性检查。      */
+  function findBridge() {
+    var names = ['ksu', 'kernelsu'];
+    for (var i = 0; i < names.length; i++) {
+      try {
+        var obj = window[names[i]];
+        if (obj && typeof obj.exec === 'function') {
+          return { api: obj, short: names[i], name: 'window.' + names[i] + '.exec' };
+        }
+      } catch (_) { /* 忽略不可访问的 window 属性 */ }
+    }
+    return null;
+  }
+
+  async function waitForBridge(timeoutMs) {
+    var deadline = Date.now() + timeoutMs;
+    for (;;) {
+      var b = findBridge();
+      if (b) return b;
+      if (Date.now() >= deadline) return null;
+      await sleep(250);
+    }
+  }
+
+  function normalizeExec(res) {
+    if (res === undefined || res === null) {
+      return { errno: -1, stdout: '', stderr: '桥返回了空值（可能是不兼容的旧版 API）' };
+    }
+    if (typeof res === 'string') return { errno: 0, stdout: res, stderr: '' };
+    if (typeof res === 'object') {
+      var errno = 0;
+      if (typeof res.errno === 'number') errno = res.errno;
+      else if (res.errno !== undefined && res.errno !== null && res.errno !== '') errno = Number(res.errno);
+      else if (res.code !== undefined && res.code !== null) errno = Number(res.code);
+      if (!isFinite(errno)) errno = 0;
+      return {
+        errno: errno,
+        stdout: res.stdout === undefined || res.stdout === null ? '' : String(res.stdout),
+        stderr: res.stderr === undefined || res.stderr === null ? '' : String(res.stderr)
+      };
+    }
+    return { errno: 0, stdout: String(res), stderr: '' };
+  }
+
+  function exec(cmd) {
+    return new Promise(function (resolve, reject) {
+      if (!bridge) { reject(new Error('未检测到 KernelSU WebUI 桥，无法执行命令')); return; }
+      var ret;
+      try {
+        ret = bridge.api.exec(cmd);
+      } catch (e) {
+        reject(new Error('调用 ' + bridge.name + ' 失败：' + describeError(e)));
+        return;
+      }
+      Promise.resolve(ret).then(
+        function (res) { resolve(normalizeExec(res)); },
+        function (e) { reject(new Error(bridge.name + ' 拒绝执行：' + describeError(e))); }
+      );
+    });
+  }
+
+  /* ---- 状态文件解析 ---------------------------------------------------
+     逐行 key=value；只认 selected / candidate，其余（含 # 注释）忽略。
+     candidate 形如 <package>|<label>，只在第一个 | 处切分。
+     容忍缺失的 key、行尾空白与 \r。                                   */
+  function parseState(text) {
+    var out = { selected: [], candidates: [], hasSelected: false, ignored: [] };
+    if (typeof text !== 'string' || text === '') return out;
+    var seen = Object.create(null);
+    var lines = text.split(/\r\n|\n|\r/);
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].replace(/\r/g, '').trim();
+      if (line === '' || line.charAt(0) === '#') continue;
+      var eq = line.indexOf('=');
+      if (eq < 0) { out.ignored.push(line); continue; }
+      var key = line.slice(0, eq).trim();
+      var val = line.slice(eq + 1).trim();
+      if (key === 'selected') {
+        out.hasSelected = true;
+        out.selected = val === '' ? [] : val.split(',').map(function (s) { return s.trim(); })
+          .filter(function (s) { return s !== ''; });
+      } else if (key === 'candidate') {
+        var bar = val.indexOf('|');
+        var pkg = (bar < 0 ? val : val.slice(0, bar)).trim();
+        var label = (bar < 0 ? '' : val.slice(bar + 1)).trim();
+        if (pkg === '' || seen[pkg]) continue;
+        seen[pkg] = true;
+        out.candidates.push({ pkg: pkg, label: label === '' ? pkg : label });
+      } else {
+        out.ignored.push(line);
+      }
+    }
+    var uniq = [], sseen = Object.create(null);
+    for (var j = 0; j < out.selected.length; j++) {
+      var p = out.selected[j];
+      if (p !== '' && !sseen[p]) { sseen[p] = true; uniq.push(p); }
+    }
+    out.selected = uniq;
+    return out;
+  }
+
+  async function readState() {
+    var res;
+    try {
+      res = await exec(READ_CMD);
+    } catch (e) {
+      return { failed: true, error: describeError(e), res: null, raw: '', parsed: parseState('') };
+    }
+    var raw = res.stdout || '';
+    return { failed: false, res: res, raw: raw, parsed: parseState(raw) };
+  }
+
+  async function pollState(opts) {
+    opts = opts || {};
+    var timeout = opts.timeoutMs || REFRESH_TIMEOUT_MS;
+    var deadline = Date.now() + timeout;
+    var before = opts.before;
+    var requireChange = !!opts.requireChange;
+    var last = null;
+    if (opts.firstDelayMs) await sleep(opts.firstDelayMs);
+    for (;;) {
+      last = await readState();
+      if (!last.failed) {
+        var changed = (before === undefined || before === null) ? true : (last.raw !== before);
+        if (last.parsed.candidates.length > 0 && (!requireChange || changed)) return last;
+      }
+      if (Date.now() >= deadline) return last;
+      await sleep(POLL_MS);
+    }
+  }
+
+  /* ---- 命令构造 ------------------------------------------------------ */
+  function shellQuote(s) {
+    return '"' + String(s).replace(/([\\"$`])/g, '\\$1') + '"';
+  }
+
+  function buildSaveCommand(pkgs) {
+    return 'am start -n ' + CONFIGURE + ' --es targets ' + shellQuote((pkgs || []).join(','));
+  }
+
+  function commandLooksFailed(res) {
+    if (!res) return true;
+    if (res.errno !== 0) return true;
+    var blob = (res.stdout || '') + '\n' + (res.stderr || '');
+    return /(^|\n)\s*(error|exception|java\.lang\.|unable to resolve|activity class .* does not exist)/i.test(blob);
+  }
+
+  function tickedInOrder() {
+    var out = [], boxes = document.querySelectorAll('input[type="checkbox"][data-pkg]');
+    for (var i = 0; i < boxes.length; i++) {
+      if (boxes[i].checked) out.push(boxes[i].getAttribute('data-pkg'));
+    }
+    return out;
+  }
+
+  /* ---- 渲染 ---------------------------------------------------------- */
+  function rowEl(c, ord, extra) {
+    var input = h('input', { type: 'checkbox', 'data-pkg': c.pkg });
+    input.checked = model.selected.indexOf(c.pkg) >= 0;
+    var main = h('span', { class: 'rowmain' }, [
+      h('span', { class: 'rowlabel', text: c.label }),
+      h('span', { class: 'rowpkg', text: c.pkg })
+    ]);
+    var kids = [input, main];
+    if (ord) kids.push(h('span', { class: 'ord', text: String(ord) }));
+    return h('label', { class: 'row' + (extra ? ' row-extra' : '') }, kids);
+  }
+
+  function render() {
+    var hasCand = model.candidates.length > 0;
+
+    els.listCard.hidden = !hasCand;
+    els.emptyCard.hidden = hasCand;
+    els.extraCard.hidden = model.extras.length === 0;
+    els.debugCard.hidden = !(model.read || model.readError || model.refresh || model.save);
+
+    els.list.textContent = '';
+    for (var i = 0; i < model.candidates.length; i++) {
+      els.list.appendChild(rowEl(model.candidates[i], i + 1, false));
+    }
+
+    els.extraList.textContent = '';
+    for (var j = 0; j < model.extras.length; j++) {
+      els.extraList.appendChild(rowEl({ pkg: model.extras[j], label: '已选目标 / selected' }, null, true));
+    }
+
+    var dbg = debugText();
+    els.debugPre.textContent = dbg;
+    els.emptyRaw.textContent = dbg;
+    els.emptyFile.textContent = STATE_FILE;
+  }
+
+  function debugText() {
+    var L = [];
+    L.push('bridge : ' + (bridge ? bridge.name : '(未检测到 / none)'));
+    L.push('file   : ' + STATE_FILE);
+    L.push('');
+    L.push('$ ' + READ_CMD);
+    if (model.readError) {
+      L.push('(exec 失败 / failed) ' + model.readError);
+    } else if (model.read) {
+      L.push('errno  : ' + model.read.errno);
+      L.push('--- stdout ---');
+      L.push(model.read.stdout === '' ? '(空 / empty)' : model.read.stdout.replace(/\s+$/, ''));
+      L.push('--- stderr ---');
+      L.push(model.read.stderr === '' ? '(空 / empty)' : model.read.stderr.replace(/\s+$/, ''));
+    } else {
+      L.push('(尚未读取 / not read yet)');
+    }
+    if (model.refresh) {
+      L.push('');
+      L.push('$ ' + REFRESH_CMD);
+      if (model.refresh.error) {
+        L.push('(exec 失败 / failed) ' + model.refresh.error);
+      } else {
+        L.push('errno  : ' + model.refresh.errno);
+        L.push('stdout : ' + (model.refresh.stdout || '').trim());
+        L.push('stderr : ' + (model.refresh.stderr || '').trim());
+      }
+    }
+    if (model.save) {
+      L.push('');
+      L.push('$ ' + model.save.cmd);
+      if (model.save.err) {
+        L.push('(exec 失败 / failed) ' + model.save.err);
+      } else if (model.save.res) {
+        L.push('errno  : ' + model.save.res.errno);
+        L.push('stdout : ' + (model.save.res.stdout || '').trim());
+        L.push('stderr : ' + (model.save.res.stderr || '').trim());
+      }
+    }
+    return L.join('\n');
+  }
+
+  function setStatus(s) {
+    if (!s) { els.statusCard.hidden = true; return; }
+    els.statusCard.hidden = false;
+    els.statusCard.className = 'card status ' + (s.kind || 'info');
+    els.statusText.textContent = s.text;
+  }
+
+  function toast(text, kind) {
+    els.toast.textContent = text;
+    els.toast.className = 'toast show ' + (kind || 'info');
+    els.toast.hidden = false;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { els.toast.hidden = true; toastTimer = null; }, 2200);
+  }
+
+  function setBusy(b) {
+    busy = b;
+    document.body.setAttribute('aria-busy', b ? 'true' : 'false');
+    els.btnSave.disabled = b || !bridge;
+    els.btnRefresh.disabled = b || !bridge;
+    els.btnEmptyRefresh.disabled = b || !bridge;
+  }
+
+  function describeRead(r) {
+    if (r.failed) return { kind: 'err', text: '读取失败：' + r.error };
+    var res = r.res;
+    if (res && res.errno !== 0) {
+      return { kind: 'err', text: '读取失败（errno=' + res.errno + '）：' + firstLine(res.stderr || res.stdout) };
+    }
+    if (r.parsed.candidates.length === 0) {
+      return { kind: 'warn', text: '读取成功，但文件里没有 candidate 行 —— 壳还没有枚举出候选安装器。' };
+    }
+    var n = r.parsed.selected.length;
+    return {
+      kind: 'ok',
+      text: '已载入 ' + r.parsed.candidates.length + ' 个候选安装器' +
+        (n ? '，当前勾选 ' + n + ' 个。' : '，当前未勾选任何项。')
+    };
+  }
+
+  function applyRead(r, override) {
+    if (r.failed) {
+      model.candidates = [];
+      model.selected = [];
+      model.extras = [];
+      model.raw = '';
+      model.read = null;
+      model.readError = r.error;
+      render();
+      setStatus(override || describeRead(r));
+      return;
+    }
+    var p = r.parsed;
+    model.candidates = p.candidates;
+    model.selected = p.selected;
+    model.raw = r.raw;
+    model.read = r.res;
+    model.readError = null;
+    var inCand = Object.create(null);
+    for (var i = 0; i < p.candidates.length; i++) inCand[p.candidates[i].pkg] = true;
+    model.extras = p.selected.filter(function (pkg) { return !inCand[pkg]; });
+    render();
+    setStatus(override || describeRead(r));
+  }
+
+  /* ---- 流程 ---------------------------------------------------------- */
+  function showNoBridge() {
+    els.bridgeCard.hidden = false;
+    els.bridgeMsg.textContent = '未检测到 KernelSU 管理器注入的 WebUI 桥（window.ksu.exec / window.kernelsu.exec）。'
+      + '本页需要 root 权限才能读写设备的安装器配置，请从 KernelSU 管理器的「模块 → COS-IFS → 打开 / WebUI」进入，'
+      + '不要在普通浏览器里直接打开这个 HTML 文件。';
+    els.bridgeBadge.className = 'badge err';
+    els.bridgeBadge.textContent = '无桥 / no bridge';
+    els.listCard.hidden = true;
+    els.extraCard.hidden = true;
+    els.emptyCard.hidden = true;
+    els.debugCard.hidden = true;
+    setStatus(null);
+    setBusy(false);
+  }
+
+  async function boot() {
+    if (busy) return;
+    setBusy(true);
+    els.bridgeCard.hidden = true;
+    els.bridgeBadge.className = 'badge';
+    els.bridgeBadge.textContent = '检测中…';
+    var b = await waitForBridge(BRIDGE_WAIT_MS);
+    if (!b) {
+      bridge = null;
+      showNoBridge();
+      return;
+    }
+    bridge = b;
+    els.bridgeBadge.className = 'badge ok';
+    els.bridgeBadge.textContent = b.short;
+    els.bridgeBadge.title = b.name + '（root 执行通道）';
+    await loadInitial();
+  }
+
+  async function loadInitial() {
+    setBusy(true);
+    var r = await readState();
+    model.refresh = null;
+    model.save = null;
+    applyRead(r);
+    setBusy(false);
+  }
+
+  async function doRefresh() {
+    if (busy || !bridge) return;
+    setBusy(true);
+    setStatus({ kind: 'info', text: '已请求壳重新枚举候选安装器，正在等待它写入文件…' });
+    var cmdRes = null, cmdErr = null;
+    try {
+      cmdRes = await exec(REFRESH_CMD);
+    } catch (e) {
+      cmdErr = describeError(e);
+    }
+    model.refresh = cmdErr ? { error: cmdErr } : cmdRes;
+
+    var before = model.raw;
+    var r = await pollState({
+      before: before,
+      requireChange: before !== '',
+      timeoutMs: REFRESH_TIMEOUT_MS,
+      firstDelayMs: FIRST_DELAY_MS
+    });
+
+    setBusy(false);
+    var override = null;
+    if (cmdErr) {
+      override = { kind: 'err', text: '刷新命令执行失败：' + cmdErr + '（下面显示的是文件当前内容）' };
+    } else if (commandLooksFailed(cmdRes)) {
+      override = {
+        kind: 'err',
+        text: '刷新命令返回异常（errno=' + cmdRes.errno + '）：' + firstLine(cmdRes.stderr || cmdRes.stdout)
+      };
+    }
+    applyRead(r, override);
+    if (!override) toast('已刷新 / Refreshed', 'ok');
+  }
+
+  async function doSave() {
+    if (busy || !bridge) return;
+    var pkgs = tickedInOrder();
+    var bad = pkgs.filter(function (p) { return !PKG_RE.test(p); });
+    if (bad.length) {
+      setStatus({ kind: 'err', text: '包名包含非法字符，已取消保存：' + bad.join(' , ') });
+      toast('保存失败 / Save failed', 'err');
+      return;
+    }
+    var cmd = buildSaveCommand(pkgs);
+    setBusy(true);
+    setStatus({ kind: 'info', text: '正在保存 ' + pkgs.length + ' 个目标…' });
+
+    var res = null, err = null;
+    try {
+      res = await exec(cmd);
+    } catch (e) {
+      err = describeError(e);
+    }
+    model.save = { cmd: cmd, res: res, err: err };
+
+    if (err || commandLooksFailed(res)) {
+      setBusy(false);
+      var why = err ? err : ('errno=' + res.errno + ' ' + firstLine(res.stderr || res.stdout));
+      render();
+      setStatus({ kind: 'err', text: '保存失败：' + why + '（见下方调试输出的原始 stdout/stderr）' });
+      toast('保存失败 / Save failed', 'err');
+      return;
+    }
+
+    var before = model.raw;
+    var r = await pollState({
+      before: before,
+      requireChange: before !== '',
+      timeoutMs: REFRESH_TIMEOUT_MS,
+      firstDelayMs: FIRST_DELAY_MS
+    });
+    setBusy(false);
+    applyRead(r);
+    var now = model.selected.length;
+    var tail = now === pkgs.length
+      ? ''
+      : '（重新读取时文件里是 ' + now + ' 个：壳可能还没写完，可点「刷新」再看）';
+    setStatus({
+      kind: 'ok',
+      text: '已保存 ' + pkgs.length + ' 个目标，按显示顺序。' + tail
+    });
+    toast('已保存 / Saved', 'ok');
+  }
+
+  /* ---- 启动 ---------------------------------------------------------- */
+  function init() {
+    els = {
+      bridgeCard: $('bridgeCard'),
+      bridgeMsg: $('bridgeMsg'),
+      bridgeBadge: $('bridgeBadge'),
+      btnRetryBridge: $('btnRetryBridge'),
+      statusCard: $('statusCard'),
+      statusText: $('statusText'),
+      listCard: $('listCard'),
+      list: $('list'),
+      extraCard: $('extraCard'),
+      extraList: $('extraList'),
+      emptyCard: $('emptyCard'),
+      emptyFile: $('emptyFile'),
+      emptyRaw: $('emptyRaw'),
+      debugCard: $('debugCard'),
+      debugPre: $('debugPre'),
+      btnSave: $('btnSave'),
+      btnRefresh: $('btnRefresh'),
+      btnEmptyRefresh: $('btnEmptyRefresh'),
+      toast: $('toast')
+    };
+    els.btnSave.addEventListener('click', doSave);
+    els.btnRefresh.addEventListener('click', doRefresh);
+    els.btnEmptyRefresh.addEventListener('click', doRefresh);
+    els.btnRetryBridge.addEventListener('click', boot);
+    boot();
+  }
+
+  /* 纯函数暴露出来，方便在浏览器控制台/离线测试里复核解析与转义。 */
+  window.__COSIFS__ = {
+    parseState: parseState,
+    buildSaveCommand: buildSaveCommand,
+    shellQuote: shellQuote,
+    normalizeExec: normalizeExec,
+    commandLooksFailed: commandLooksFailed,
+    STATE_FILE: STATE_FILE,
+    READ_CMD: READ_CMD,
+    REFRESH_CMD: REFRESH_CMD
+  };
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
+  else init();
+})();
+</script>
+</body>
+</html>

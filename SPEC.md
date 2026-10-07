@@ -182,16 +182,21 @@ ForwardShell 是另一条路。**两者不能同时启用** —— 都会占用 
 
 `build/graftsig.py` 从姊妹项目原样复用（也因此本仓库沿用 GPL-3.0）。
 
-## 10. 落地顺序
+## 10. 进度
 
-1. ~~**[先验证]** 用户版 InstallerX 的 Root 模式~~ → **已验证**：转发目标用 Root 模式可用，
-   速度与系统模式体感相当，没有额外的逐次确认弹窗。
-   （唯一遗留：`dumpsys package` 里的 installer 归属没核对，影响很小。）
-2. ~~**打通构建**~~ → **已完成**。手写 smali 工程（manifest + apktool.yml + smali，零 res）→ `apktool b`
-   → 对齐 → `graftsig.py` 嫁接，全流程跑通。产物 **12631 字节**，签名块与 donor 逐字节一致，
-   组件计数验证通过（两份查询各恰好 1 个）。踩到的两个坑记在 `build/README.md`。
-3. **打通挂载**：打成模块（沿用 Hybrid Mount + 本模块后端设 VFS），真机确认开机自检通过、组件可被显式调用。
-4. **转发逻辑**：intent 复制 + `grantUriPermission` + `setPackage` + 启动；先写死一个目标包验证通路。
-5. **自动发现 + 优先级列表**。
-6. **配置界面**：`ConfigureActivity` + WebUI（按 §5.1），秘密代码入口兜底。
-7. 最后考虑「目标没装」时的内置兜底安装器（§8.1）。
+1. ~~**[先验证]** 用户版 InstallerX 的 Root 模式~~ → **已验证**（实测：可用、速度与系统模式体感相当、没有逐次确认弹窗）。
+2. ~~**打通构建**~~ → **已完成**。手写 smali 工程（零 res）→ `apktool b` → 对齐 → `graftsig.py` 嫁接。
+3. ~~**打成模块**~~ → **已完成**（`cos-ifs-module-v0.1.zip`）。真机开机验证**待用户执行**。
+4. ~~**转发逻辑**~~ → **已完成**：intent 复制 + `setComponent(null)` + `setPackage` + try/catch 包住启动。
+5. ~~**自动发现 + 优先级列表**~~ → **已完成**：保存列表 → 内置 `PREFERRED` → 唯一候选 → null（此时回退到写死的目标包）。
+6. ~~**配置存储 + `ConfigureActivity`**~~ → **已完成**（签名级权限保护）。WebUI（自动搜索 + 勾选）**进行中**。
+   秘密代码入口**未做** —— v1 的图形界面只有 WebUI；没有 WebView 桥的管理器可以用 `am start` 配置（README 有写）。
+7. **未做**：「目标没装」时的内置兜底安装器（见 §8.1）。
+
+**全部待真机验证事项**：
+
+- 开机自检是否通过（组件计数已在静态层面核对，但没上过机）
+- `cmp=com.android.packageinstaller/.InstallStart` 能否被 NP管理器 成功调用
+- 转发过去之后 InstallerX 是否真的走 Root 模式
+- content URI 授权是否需要显式 `grantUriPermission`（目前依赖 flag 随 intent 复制传递）
+- 当前 KernelSU 管理器版本上 `ksu.exec` 桥是否可用（WebUI 依赖它）
