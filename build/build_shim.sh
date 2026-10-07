@@ -29,6 +29,12 @@ WORK=${WORK:-work}
 OUT=${OUT:-dist/cos-ifs.apk}
 JHOMEDIR=${JHOMEDIR:-$PWD/$WORK/home}
 
+# Pinned to what packages.xml already records for com.android.packageinstaller on the
+# target device; a change here gets recorded as a version change. Check yours with:
+#   su -c 'dumpsys package com.android.packageinstaller | grep -m1 version'
+VERSION_CODE=${VERSION_CODE:-17000001}
+VERSION_NAME=${VERSION_NAME:-17.0.1}
+
 for f in "$DONOR" "$FW/1.apk"; do
     [ -e "$f" ] || { echo "missing input: $f  -- see build/README.md" >&2; exit 1; }
 done
@@ -77,3 +83,14 @@ python3 "$HERE/graftsig.py" \
     "$SIGNED" \
     "$DONOR" \
     "$OUT"
+
+# 4) Assert the boot-critical invariants on the artifact just produced. This runs here
+#    rather than by hand because the component counts decide whether the device boots at
+#    all -- exactly one component may answer the installer query, exactly one the
+#    uninstaller query -- and a hand check is what let the sibling project ship a
+#    zero-installer build once. verify_shim.py is itself falsification-tested: it fails on
+#    a manifest carrying a second installer component.
+echo
+echo "=== asserting the boot self-check invariants ==="
+python3 "$HERE/verify_shim.py" "$OUT" \
+    --version-code "$VERSION_CODE" --version-name "$VERSION_NAME"

@@ -64,6 +64,32 @@ SIGNER=/path/to/uber-apk-signer.jar \
 
 写成 `'17000001'`（带引号）会直接抛 `NumberFormatException`。
 
+**③ XML 注释里不能出现 `--`（双连字符）。**
+
+aapt2 只会报一句语焉不详的 `not well-formed (invalid token)`，看不出是哪一行。
+**这个坑在本项目里踩了两次**，所以 `build_shim.sh` 开头加了一个前置检查，会直接给出明确报错，
+不用再去读 aapt2 的输出。
+
+## 构建时的自动断言（为什么不能只靠肉眼）
+
+`build_shim.sh` 最后一步会跑 `build/verify_shim.py`，直接解析**刚产出的 APK 的二进制 manifest**
+并断言这些不变量：
+
+- 包名 / `versionCode` / `versionName` 是钉死的值
+- **安装器查询恰好命中 1 个组件**（`file://` 与 `content://` 两种形式分别校验，且必须指向同一个组件
+  —— 查询用的是哪种 scheme 在不同 AOSP 版本间有差异）
+- **卸载器查询恰好命中 1 个组件**
+- 4 个给调用方的别名存在、exported、且**没有 intent-filter**（加了就会多出一次命中）
+- `Configure` 别名与它的目标都存在、exported、且**各自都带**签名级权限（别名是独立组件，
+  只在目标上声明权限不保证能拦住）
+- 壳**不申请任何权限**，只声明那一个权限
+
+为什么值得为它单独写个工具：**这几条里任何一条错了，开机时系统里就是 0 个安装器 → 卡开机** ——
+这是本项目唯一真正的砖风险。姊妹项目当初靠人工核对，有过一次险情。这个校验器自己做过反证测试：
+喂给它一个"多了一个安装器组件"的 manifest，它会失败并**把两个命中的组件都列出来**。
+
+（`build/axml_manifest.py` 是二进制 AXML 解析器，复用自姊妹项目，GPL-3.0。）
+
 ## 关于 `versionCode` / `versionName`
 
 壳的版本号**刻意钉死**成设备已记录的 `17000001` / `17.0.1`，否则会在 `packages.xml` 里
@@ -75,5 +101,5 @@ su -c 'dumpsys package com.android.packageinstaller | grep -m1 version'
 
 ## 顺带一提：产物有多小
 
-壳 APK 目前约 **12 KB**，而姊妹项目的方案要塞进去一个 **6.1 MB** 的 InstallerX。
-这正是这个方案的意义 —— 上游 InstallerX 怎么更新，都和这个壳无关了。
+壳 APK 目前约 **16.7 KB**，整个模块约 **23 KB**，而姊妹项目的方案要塞进去一个 **6.1 MB** 的
+InstallerX（模块 4.7 MB）。这正是这个方案的意义 —— 上游 InstallerX 怎么更新，都和这个壳无关了。
