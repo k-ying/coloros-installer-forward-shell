@@ -35,8 +35,12 @@ candidate). That was caught by simulating the loop over the device's actual reso
 not by reading it. Hence both opcodes are pinned here, so the next edit gets checked
 instead of eyeballed.
 
-The polarity is therefore pinned here. If the enumeration is ever restructured, update
-this check deliberately instead of deleting it.
+A later edit added a third rule of the same kind: pickTarget() skips a saved entry when
+String.length() == 0, which has to be if-eqz. That was ALSO first written as if-nez, which
+would have skipped every useful entry and returned only the blanks.
+
+All three are therefore pinned in the POLARITY table below, each scoped to its own method.
+If any of this is restructured, update the table deliberately instead of deleting it.
 
 Usage: audit_smali.py [smali-root]   (default: shim/smali)
 """
@@ -50,12 +54,24 @@ CLASS_RE = re.compile(r'^\.class[^\n]*\s(L[^\s;]+;)', re.M)
 CALL_RE = re.compile(r'invoke-(\w+)\s+\{([^}]*)\},\s*(L[^\s;]+;)->(\w+)\(')
 BRANCH_RE = re.compile(r'^\s*(if-(?:eqz|nez|eq|ne|lt|ge|gt|le))\b')
 
-# (anchor that starts the sequence, opcode the following branch must use, what it means)
+# Branch-polarity rules: (file, method, anchor call, opcode the following branch must use,
+# why). Each is a "jump past the work when the predicate says so" branch, so the opcode has
+# to match the polarity of the value the call returns. Three have now been written
+# backwards in this project, so they are pinned here instead of being eyeballed.
+#
+# Scoped per method on purpose: `contains` is context dependent. In the OLD pickTarget()
+# `pkgs.contains(pkg) == 1` meant "this is a real candidate", so if-eqz was correct there,
+# and flagging it would have taught us to ignore this check.
 POLARITY = [
-    ('Ljava/lang/String;->equals(Ljava/lang/Object;)Z', 'if-nez',
+    ('ConfigureActivity.smali', 'writeStateFile',
+     'Ljava/lang/String;->equals(Ljava/lang/Object;)Z', 'if-nez',
      'equals() == 1 means "we are looking at ourselves", which must skip the emit'),
-    ('Ljava/util/ArrayList;->contains(Ljava/lang/Object;)Z', 'if-nez',
+    ('ConfigureActivity.smali', 'writeStateFile',
+     'Ljava/util/ArrayList;->contains(Ljava/lang/Object;)Z', 'if-nez',
      'contains() == 1 means "already emitted", which must skip the emit'),
+    ('ForwardActivity.smali', 'pickTarget',
+     'Ljava/lang/String;->length()I', 'if-eqz',
+     'length() == 0 means the saved entry is blank, so it must be skipped'),
 ]
 
 
@@ -105,52 +121,57 @@ def check_invoke_opcodes(root, decl):
 
 
 def check_branch_polarity(root):
-    """Verify the candidate-enumeration branches inside writeStateFile().
-
-    Scoped deliberately to that one method: `contains` is context dependent. In
-    ForwardActivity.pickTarget() `pkgs.contains(pkg) == 1` means "this is a real
-    candidate", so the branch there is if-eqz and is CORRECT. Flagging it would train
-    us to ignore this check, which is worse than not having it.
-    """
+    """Verify every call site listed in POLARITY has the branch polarity it needs."""
     problems = []
-    path = os.path.join(root, 'com', 'android', 'packageinstaller', 'ConfigureActivity.smali')
-    if not os.path.isfile(path):
-        return [f'{path}: missing, cannot verify the enumeration branches']
+    cache = {}
+    for fname, method, anchor, want, why in POLARITY:
+        path = os.path.join(root, 'com', 'android', 'packageinstaller', fname)
+        if path not in cache:
+            cache[path] = open(path, encoding='utf-8').read() if os.path.isfile(path) else None
+        src = cache[path]
+        if src is None:
+            problems.append(f'{path}: missing, cannot verify its polarity rules')
+            continue
 
-    src = open(path, encoding='utf-8').read()
-    m = re.search(r'^\.method[^\n]*writeStateFile[^\n]*$.*?^\.end method$', src, re.M | re.S)
-    if not m:
-        return [f'{path}: writeStateFile() not found, cannot verify the enumeration branches']
-    body = m.group(0)
-    offset = src[:m.start()].count('\n')  # 0-based line of the method header
-    lines = body.splitlines()
+        m = re.search(r'^\.method[^\n]*\b' + re.escape(method) + r'[^\n]*$.*?^\.end method$',
+                      src, re.M | re.S)
+        if not m:
+            problems.append(f'{path}: {method}() not found, cannot verify its polarity rules')
+            continue
+        offset = src[:m.start()].count('\n')  # 0-based line of the method header
+        lines = m.group(0).splitlines()
+        callee = anchor.split('->')[1].split('(')[0]
 
-    for anchor, want, why in POLARITY:
         hits = 0
         for i, line in enumerate(lines):
             if anchor not in line:
                 continue
             hits += 1
-            # the branch that consumes move-result follows the call immediately
+            # The branch that consumes the result follows the call, but blank lines,
+            # comments and the move-result/check-cast in between must not hide it.
             branch = None
-            for follow in lines[i + 1:i + 5]:
+            for follow in lines[i + 1:i + 16]:
+                t = follow.strip()
+                if t == '' or t.startswith('#'):
+                    continue
                 b = BRANCH_RE.match(follow)
                 if b:
                     branch = b.group(1)
                     break
+                if t.startswith('move-result') or t.startswith('check-cast'):
+                    continue
+                break
             lineno = offset + i + 1
-            method = anchor.split('->')[1].split('(')[0]
             if branch is None:
-                problems.append(f'{path}:{lineno}: {method}() result is not consumed by a '
+                problems.append(f'{path}:{lineno}: {callee}() result is not consumed by a '
                                 f'branch -- {why}')
             elif branch != want:
-                problems.append(f'{path}:{lineno}: {method}() is guarded by {branch}, '
+                problems.append(f'{path}:{lineno}: {callee}() is guarded by {branch}, '
                                 f'needs {want} -- {why}')
         if hits == 0:
-            problems.append(f'{path}: no {anchor.split("->")[1].split("(")[0]}() branch '
-                            f'found in writeStateFile() -- if the loop was restructured, '
-                            f'update the POLARITY table in this script')
-    print(f'  check 2: enumeration branches in writeStateFile() checked')
+            problems.append(f'{path}: no {callee}() call found in {method}() -- if the code '
+                            f'was restructured, update the POLARITY table in this script')
+    print(f'  check 2: {len(POLARITY)} pinned branch(es) checked')
     return problems
 
 

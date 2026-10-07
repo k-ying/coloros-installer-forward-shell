@@ -138,146 +138,65 @@
     return-object v0
 .end method
 
-# Which package should receive the forwarded intent?  Returns null when nothing
-# suitable is installed (or nothing is visible to us).
+# Which package should receive the forwarded intent?  Returns null when the user has
+# not chosen one; the caller then falls back to TARGET_PACKAGE.
+#
+# This deliberately does NOT consult queryIntentActivities any more. The previous version
+# returned only targets present in our own candidate list, and fell back to "the sole
+# candidate" when that list held exactly one entry. Both parts were fragile:
+#
+#   * the candidate list is subject to package-visibility filtering, so a target the user
+#     had explicitly chosen could be skipped silently and something else used instead.
+#     Only the winner reaches the log, never the skip.
+#   * "sole candidate" is not evidence of anything. On the PLK110 test device a Go-playing
+#     game (top.bienvenido.saas.i18n, "元萝卜") declares an INSTALL_PACKAGE filter, so a
+#     one-entry list would have routed installs to it.
+#
+# startActivity() does not require the target to be visible, so nothing is lost by
+# trusting the saved list outright: the explicit choice wins, and if that package is gone
+# the start fails into the existing Toast. Discovery belongs in the WebUI, which runs as
+# root and therefore sees every installer; the shell only executes what it is told.
 .method public pickTarget()Ljava/lang/String;
-    .locals 12
+    .locals 4
 
-    # List<ResolveInfo> cands = getPackageManager().queryIntentActivities(probeIntent(), 0);
-    invoke-virtual {p0}, Landroid/app/Activity;->getPackageManager()Landroid/content/pm/PackageManager;
-
-    move-result-object v0
-
-    invoke-virtual {p0}, Lcom/android/packageinstaller/ForwardActivity;->probeIntent()Landroid/content/Intent;
-
-    move-result-object v1
-
-    const/4 v2, 0x0
-
-    invoke-virtual {v0, v1, v2}, Landroid/content/pm/PackageManager;->queryIntentActivities(Landroid/content/Intent;I)Ljava/util/List;
+    # String[] saved = readSavedTargets();
+    invoke-virtual {p0}, Lcom/android/packageinstaller/ForwardActivity;->readSavedTargets()[Ljava/lang/String;
 
     move-result-object v0
 
     if-eqz v0, :none
 
-    # List<String> pkgs = new ArrayList<>();
-    new-instance v1, Ljava/util/ArrayList;
-
-    invoke-direct {v1}, Ljava/util/ArrayList;-><init>()V
-
-    # for (int i = 0; i < cands.size(); i++)
-    const/4 v2, 0x0
+    # for (int i = 0; i < saved.length; i++) -- the first non-blank entry wins
+    const/4 v1, 0x0
 
     :loop
-    invoke-interface {v0}, Ljava/util/List;->size()I
+    array-length v2, v0
 
-    move-result v3
+    if-ge v1, v2, :none
 
-    if-ge v2, v3, :loop_end
+    aget-object v2, v0, v1
 
-    invoke-interface {v0, v2}, Ljava/util/List;->get(I)Ljava/lang/Object;
+    if-eqz v2, :loop_next
+
+    invoke-virtual {v2}, Ljava/lang/String;->trim()Ljava/lang/String;
 
     move-result-object v3
 
-    check-cast v3, Landroid/content/pm/ResolveInfo;
-
-    iget-object v3, v3, Landroid/content/pm/ResolveInfo;->activityInfo:Landroid/content/pm/ActivityInfo;
-
-    if-eqz v3, :loop_next
-
-    iget-object v3, v3, Landroid/content/pm/ActivityInfo;->packageName:Ljava/lang/String;
-
-    invoke-virtual {v1, v3}, Ljava/util/ArrayList;->add(Ljava/lang/Object;)Z
-
-    move-result v4
-
-    :loop_next
-    add-int/lit8 v2, v2, 0x1
-
-    goto :loop
-
-    # pkgs.remove(getPackageName());   <- never forward to ourselves
-    :loop_end
-    invoke-virtual {p0}, Landroid/app/Activity;->getPackageName()Ljava/lang/String;
-
-    move-result-object v2
-
-    invoke-virtual {v1, v2}, Ljava/util/ArrayList;->remove(Ljava/lang/Object;)Z
+    invoke-virtual {v3}, Ljava/lang/String;->length()I
 
     move-result v3
 
-    # 1. the user's saved list wins
-    invoke-virtual {p0}, Lcom/android/packageinstaller/ForwardActivity;->readSavedTargets()[Ljava/lang/String;
-
-    move-result-object v7
-
-    array-length v8, v7
-
-    const/4 v9, 0x0
-
-    :sloop
-    if-ge v9, v8, :sloop_end
-
-    aget-object v10, v7, v9
-
-    invoke-virtual {v1, v10}, Ljava/util/ArrayList;->contains(Ljava/lang/Object;)Z
-
-    move-result v11
-
-    if-eqz v11, :sloop_next
-
-    return-object v10
-
-    :sloop_next
-    add-int/lit8 v9, v9, 0x1
-
-    goto :sloop
-
-    # 2. then the built-in preference list
-    :sloop_end
-    sget-object v2, Lcom/android/packageinstaller/ForwardActivity;->PREFERRED:[Ljava/lang/String;
-
-    array-length v3, v2
-
-    const/4 v4, 0x0
-
-    :ploop
-    if-ge v4, v3, :ploop_end
-
-    aget-object v5, v2, v4
-
-    invoke-virtual {v1, v5}, Ljava/util/ArrayList;->contains(Ljava/lang/Object;)Z
-
-    move-result v6
-
-    if-eqz v6, :ploop_next
-
-    return-object v5
-
-    :ploop_next
-    add-int/lit8 v4, v4, 0x1
-
-    goto :ploop
-
-    # 3. then a sole candidate
-    :ploop_end
-    invoke-virtual {v1}, Ljava/util/ArrayList;->size()I
-
-    move-result v2
-
-    const/4 v3, 0x1
-
-    if-ne v2, v3, :none
-
-    const/4 v2, 0x0
-
-    invoke-virtual {v1, v2}, Ljava/util/ArrayList;->get(I)Ljava/lang/Object;
-
-    move-result-object v2
-
-    check-cast v2, Ljava/lang/String;
+    # blank entry -> if-eqz (jump when the length IS zero). if-nez here would skip every
+    # useful entry and return only the blanks. This polarity has been written backwards
+    # twice in this project, so build/audit_smali.py pins it.
+    if-eqz v3, :loop_next
 
     return-object v2
+
+    :loop_next
+    add-int/lit8 v1, v1, 0x1
+
+    goto :loop
 
     :none
     const/4 v0, 0x0

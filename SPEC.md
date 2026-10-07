@@ -205,7 +205,10 @@ ForwardShell 是另一条路。**两者不能同时启用** —— 都会占用 
 - ~~`cmp=com.android.packageinstaller/.InstallStart` 能否被 NP管理器 成功调用~~ → **通过**
 - ~~转发过去之后 InstallerX 是否真的走 Root 模式~~ → **通过**
 - ~~当前 KernelSU 管理器版本上 `ksu.exec` 桥是否可用~~ → **可用**（状态文件确实被写出来了）
-- **待验证**：`cos-ifs.txt` 里能否列出候选安装器（v0.4 的修复目标，验收命令见 §12）
+- ~~**待验证**：`cos-ifs.txt` 里能否列出候选安装器（v0.4 的修复目标，验收命令见 §12）~~ →
+  **已验证**。v0.4 真机输出 3 行，标签也对：
+  `app.pwhs.universalinstaller|软件包安装程序`、`com.rosan.installer.x.revived|InstallerX Revived`、
+  `top.bienvenido.saas.i18n|元萝卜`。
 - **待验证**：content URI 授权在**多文件分享**（`ClipData` 多条）时目标能否读到全部 URI——
   现在已**显式重授**：`getData()` 加上 `ClipData` 的每一项，只在 scheme 是 `content`
   且我们确实持有授权时才授，整段 best-effort（失败只记日志，不崩）；转发的 intent 另外带上
@@ -356,3 +359,55 @@ su -c 'cat /data/data/com.android.packageinstaller/files/cos-ifs.txt'
 期望：**至少 1 行 `candidate=`**。本机实测应有 3 行（`app.pwhs.universalinstaller`、
 `com.rosan.installer.x.revived`、`top.bienvenido.saas.i18n`）。若仍为空，下一步就是查
 `queryIntentActivities` 在本进程内的返回值（在 `writeStateFile` 里打一行 `Log.i` 记录 list 尺寸）。
+
+---
+
+## 13. 转发目标改为确定性选择（v0.5，2026-10-07）
+
+**背景**：v0.4 让枚举恢复正常之后，真机文件里出现 3 个候选，其中一个是**元萝卜**
+（`top.bienvenido.saas.i18n`）—— 一个下围棋的 app，它居然也声明了 `INSTALL_PACKAGE` 的 filter。
+这一下把 v0.3 里两处"顺手"的启发式变成了真实风险。
+
+**v0.3 的 `pickTarget()` 顺序**：保存列表 → 内置 `PREFERRED` → **唯一候选** → null。
+其中前两级都有一道 `candidates.contains(pkg)` 过滤，也就是"**只有壳自己看得见的包才算数**"。
+
+**两个问题**：
+
+1. **显式选择会被静默跳过。** 候选列表受包可见性过滤（v0.4 期间实测到过只返回 1 个的时刻）。
+   一旦壳看不见用户选的那个包，`contains` 不成立 → 该选择被跳过 → 落到下一级。
+   用户只会在日志里看到最终的赢家，**永远看不到"你的选择被跳过了"**。
+2. **"唯一候选"根本不是证据。** 元萝卜就是反例：如果机器上只剩它一个可见候选，安装会被静默
+   转发给它。这个分支原本是为了"只装了 InstallerX 时省事"，但 `PREFERRED` 已经覆盖了那几种
+   命名，所以它带来的只有风险。
+
+**v0.5 的做法**：`pickTarget()` 只做一件事 —— 取保存列表里第一个非空白项，没有就返回 null
+（调用方回落到写死的 `TARGET_PACKAGE` = InstallerX Revived）。
+
+```smali
+# 第一项非空白即为目标；不再查 queryIntentActivities
+if-eqz v2, :loop_next          # null 项 -> 跳过
+invoke-virtual {v3}, Ljava/lang/String;->length()I
+move-result v3
+if-eqz v3, :loop_next          # 空白项 -> 跳过（length()==0 必须用 if-eqz）
+return-object v2
+```
+
+**为什么可以完全不看可见性**：`startActivity()` **不要求目标可见**（真机已证：v0.3 时期壳枚举
+为空、却仍把安装成功转发给了 InstallerX）。所以显式选择直接采信；如果那个包已经卸载，
+启动会失败并落到既有的 Toast。**发现候选这件事交给 WebUI**（它以 root 运行，看得见全部安装器），
+壳只负责执行被告知的目标。
+
+**边界**：代价是"只装了 Universal Installer、又没在 WebUI 里勾过"时，壳不会自动改用它，而是
+弹 Toast —— 那时去 WebUI 勾一下即可。这比"静默转发给一个下围棋的 app"好得多。
+
+**新增的机器校验**：`length()` 这一行第一次又被写成了 `if-nez`（**本项目第三次犯同一个极性错误**），
+所以 `audit_smali.py` 的检查 2 从"只扫 `writeStateFile()`"升级成一张
+**（文件 + 方法 + 锚点 + 应有 opcode）** 规则表，现在钉住 3 条：
+
+| 文件 | 方法 | 锚点 | 必须 | 含义 |
+|---|---|---|---|---|
+| `ConfigureActivity` | `writeStateFile` | `String.equals` | `if-nez` | ==1 表示是自己 → 跳过 emit |
+| `ConfigureActivity` | `writeStateFile` | `ArrayList.contains` | `if-nez` | ==1 表示已输出过 → 跳过 emit |
+| `ForwardActivity` | `pickTarget` | `String.length` | `if-eqz` | ==0 表示空白项 → 跳过 |
+
+三条各自都做了反证测试（改错极性 → 精确报出文件/行号/应有 opcode → 退出码 1）。
