@@ -69,10 +69,11 @@ su -c 'sha256sum /system_ext/priv-app/OppoPackageInstaller/OppoPackageInstaller.
 ## 安装
 
 1. 先装元模块 **Hybrid Mount** 并重启。
-2. 刷入 `cos-ifs-module-v0.7.zip`（Releases 页）并重启。
-   > **任何模块更新都必须重启。** 刷完模块会先变成灰色（待更新状态），重启后才生效，WebUI 也才进得去。
-3. 在 Hybrid Mount 里把本模块的后端设为 **VFS**，保存后重启。**不要**动全局默认后端。
-4. 验证：
+2. 刷入 `cos-ifs-module-v0.7.zip`（Releases 页），然后打开 **Hybrid Mount 的 WebUI →「模块」页 → 点本模块
+   → 后端设为 VFS → 点保存 → 重启**即可。**不要**动全局默认后端。
+   > 若这时 Hybrid Mount 的 WebUI 进不去，先重启一次再设。（**任何模块更新都必须重启**才会生效。）
+
+3. 验证：
 
 ```sh
 su -c 'ls -l /system_ext/priv-app/OppoPackageInstaller/'
@@ -99,7 +100,7 @@ su -c 'cat /data/data/com.android.packageinstaller/files/cos-ifs.txt'           
 
 （这个 activity 由**签名级权限**保护，只有 root / 同证书的调用者能用 —— 避免任意应用把转发目标改成它自己。）
 
-## 退路
+## 出问题 / 开不了机怎么办
 
 1. **只让替换失效**：Hybrid Mount →「模块」→ 本模块 →「模块默认」→ **忽略** → 重启。原版安装器立刻回来。
 2. **KSU 安全模式**：开机第一屏出现后，**连按「音量下」3 次**（按下松开 ×3）。
