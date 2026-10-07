@@ -47,33 +47,16 @@
         android:protectionLevel="signature"/>
 
     <!--
-      Package visibility (Android 11+). This is load-bearing twice over: without it
-      queryIntentActivities() cannot enumerate candidate installers (so the WebUI list is
-      empty), and startActivity() to the chosen installer can fail outright.
-
-      The schemes are NOT optional. Our probe carries a content:// URI, and an intent
-      filter that declares a mimeType but no scheme does not match an intent that has a
-      scheme, so the first version of this, which listed only the mimeType, did not
-      actually cover our own probe.
-
-      QUERY_ALL_PACKAGES is belt and braces on top of that: it is a normal-protection
-      permission (so it is not part of the privapp allowlist surface, which is the boot
-      hazard this project avoids), and it makes discovery independent of whether a given
-      ROM's system-app visibility rules behave as documented.
+      Package visibility (Android 11+). Without this, queryIntentActivities() sees
+      almost nothing and the shell cannot discover candidate installers. See SPEC 4.1.
     -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
-
     <queries>
         <intent>
             <action android:name="android.intent.action.INSTALL_PACKAGE"/>
-            <data android:scheme="content"/>
-            <data android:scheme="file"/>
             <data android:mimeType="application/vnd.android.package-archive"/>
         </intent>
         <intent>
             <action android:name="android.intent.action.VIEW"/>
-            <data android:scheme="content"/>
-            <data android:scheme="file"/>
             <data android:mimeType="application/vnd.android.package-archive"/>
         </intent>
     </queries>

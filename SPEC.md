@@ -204,3 +204,35 @@ ForwardShell 是另一条路。**两者不能同时启用** —— 都会占用 
   `content` 且我们确实持有授权时才授，整段 best-effort（失败只记日志，不崩）；转发的 intent 另外带上
   读权限 flag 作为第二道保险。真机上要确认的是**多文件分享**（`ClipData` 多条）时目标能否读到全部 URI。
 - 当前 KernelSU 管理器版本上 `ksu.exec` 桥是否可用（WebUI 依赖它）
+
+---
+
+## 11. 事故记录：v0.2 开机循环（2026-10-07）
+
+**现象**：v0.1 刷入后正常开机、WebUI 可用；v0.2 刷入后**开机循环**，靠 KernelSU 安全模式救回。
+
+**定位**：v0.1 → v0.2 的 manifest 差异**只有两处**（`git diff` 确认），两处都已回退：
+
+1. **新增 `<uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>`** ← 主要嫌疑
+2. 两个 `<queries><intent>` 里各加了 `<data android:scheme="content"/>` 与 `scheme="file"`
+
+同一区间内 smali 只把 `ConfigureActivity.probeIntent` 从 `private` 改成 `public`，**不可能影响开机**
+（而且 dex 代码也不会在开机时执行 —— 壳没有 receiver、没有 service、没有 boot 触发点）。
+
+**三条教训（第一条已变成硬断言）**：
+
+1. **绝不往这个 priv-app 里加权限。** 姊妹项目当初花大力气裁掉 4 个权限，正是因为"给系统 priv-app 加权限"
+   属于**能搞挂开机的那个类别**。我为了"保险"反方向加了一条，判断错了。
+   `verify_shim.py` 现在把"不得申请任何权限"变成硬断言，删掉这条规则需要显式改校验器。
+2. **改动要贴着"已知能开机的那一版"走。** 当两个改动里不知道哪个是元凶时，**两个都回退**，
+   之后一次只加回一个。v0.3 = v0.1 的 manifest（**逐字节一致**，`git diff` 为 0 行）+ 唯一该保留的崩溃修复。
+3. **`<queries>` 不是"改了没风险"的地方** —— 它就在 manifest 里，改它等于改这个包的解析输入。
+
+**还没确定的**：到底哪一处是元凶（两处都回退了，所以没能二分）。有一个持久的证据可以定性：
+`/data/system/dropbox/` 里的 `system_server_crash` / `system_server_watchdog` 条目**跨重启保留**，
+而 logcat 缓冲区在重启时就没了。
+
+**包可见性该怎么做（不动 manifest 的前提下）**：WebUI 本身以 root 运行，让它自己解析组件
+（`cmd package resolve-activity …`），把**组件名**通过 `am start --es components …` 交给壳，
+壳用 `setComponent()` 转发。**带显式 `ComponentName` 的 intent 完全不受包可见性过滤** ——
+这样既不需要在 `<queries>` 里声明 scheme，也不需要那条权限。等核心链路真机跑通再实现。

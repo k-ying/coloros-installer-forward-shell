@@ -92,7 +92,11 @@ python3 "$HERE/graftsig.py" \
 #     comes out identical every time -- so the wall-clock DOS timestamps were the only
 #     thing making two builds of the same source differ, and that made any published hash
 #     unverifiable. Verified: two independent builds normalise to the same bytes.
+#     NOTE: the sha256 that graftsig.py prints above is the PRE-normalisation hash, so it
+#     is NOT the hash of the file you end up with. The authoritative one is printed below.
 python3 "$HERE/normalize_zip_time.py" "$OUT"
+
+echo "final artifact: $OUT  $(stat -c%s "$OUT") bytes  sha256 $(sha256sum "$OUT" | cut -d' ' -f1)"
 
 # 4) Assert the boot-critical invariants on the artifact just produced. This runs here
 #    rather than by hand because the component counts decide whether the device boots at

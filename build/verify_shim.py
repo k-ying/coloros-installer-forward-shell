@@ -226,19 +226,26 @@ def main(argv):
             raise Fail(f'{label} must be filterless')
     print(f'  {CONFIGURE_ALIAS} -> {CONFIGURE}, both gated by the signature permission')
 
-    # 6. permissions: exactly one normal-protection permission, and nothing else.
-    # QUERY_ALL_PACKAGES is `normal`, so it carries no privapp allowlist exposure -- which
-    # is the actual boot hazard this check exists for. Anything else would be a regression.
-    ALLOWED_PERMS = {'android.permission.QUERY_ALL_PACKAGES'}
+    # 6. permissions: NONE requested, and exactly one declared.
+    #
+    # This assertion was briefly relaxed to allow QUERY_ALL_PACKAGES, and the very next
+    # device boot looped. A priv-app requesting a permission it did not request before is
+    # exactly the class of change that can stop a device from coming up -- it is why the
+    # sibling project spent so long trimming its own request set -- so the rule is absolute
+    # again: this shell requests nothing.
+    #
+    # If package visibility ever needs solving, solve it OUTSIDE the manifest. The WebUI
+    # already runs as root and can resolve a component itself, and an intent carrying an
+    # explicit ComponentName is not subject to visibility filtering at all.
     ups = {c.get('name') for c in root.kids if c.tag.startswith('uses-permission')}
-    if ups != ALLOWED_PERMS:
-        raise Fail(f'the shell must request only {sorted(ALLOWED_PERMS)}, found '
-                   f'{sorted(ups)} -- a privileged permission here is a boot hazard')
+    if ups:
+        raise Fail(f'the shell must request NO permissions, found {sorted(ups)}; adding one '
+                   f'to a priv-app is a boot hazard')
     declared = [c.get('name') for c in root.find('permission')]
     if declared != [CONFIGURE_PERM]:
         raise Fail(f'expected exactly one declared permission ({CONFIGURE_PERM}), '
                    f'got {declared}')
-    print('  requests only QUERY_ALL_PACKAGES (normal protection); declares only CONFIGURE')
+    print('  requests no permissions at all; declares only the CONFIGURE permission')
 
     print('OK: every boot-critical invariant holds')
 
