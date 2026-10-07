@@ -1,0 +1,11 @@
+# build leftovers
+__pycache__/
+*.pyc
+work/
+dist/
+*.apk
+*.idsig
+*.log
+
+.DS_Store
+Thumbs.db
