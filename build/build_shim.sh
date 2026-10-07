@@ -35,6 +35,22 @@ done
 
 mkdir -p "$WORK" "$(dirname "$OUT")"
 
+# 0) pre-flight: an XML comment may not contain a double hyphen. aapt2 reports it as a
+#    bare "not well-formed (invalid token)" with no useful context, and the trap is easy
+#    to walk into while writing prose comments. Strip the legal delimiters first, then
+#    anything left is illegal.
+python3 - "$SRC/AndroidManifest.xml" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding='utf-8').read()
+stripped = s.replace('<!--', '').replace('-->', '')
+if '--' in stripped:
+    i = stripped.index('--')
+    line = stripped[:i].count('\n') + 1
+    sys.exit(f"{p}: '--' is not allowed inside an XML comment (around stripped line {line})")
+print('manifest pre-flight: no illegal double hyphen')
+PY
+
 # 1) manifest + smali -> APK.
 #    apktool caches its previous output in <SRC>/build/apk/ and does NOT invalidate that
 #    cache when the smali changes (it just says "smali has not changed"), so drop it

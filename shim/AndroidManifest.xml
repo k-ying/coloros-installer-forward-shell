@@ -108,6 +108,24 @@
             android:noHistory="true"
             android:permission="com.android.packageinstaller.permission.CONFIGURE"/>
 
+        <!--
+          `.Configure` is the name the WebUI, SPEC and README all quote, and a bare
+          `.Configure` expands to com.android.packageinstaller.Configure, which is NOT
+          ConfigureActivity. Without this alias every am start the WebUI issues would die
+          with ActivityNotFoundException, i.e. Save and Refresh would silently do
+          nothing. Quoting a stable alias also leaves the implementation class free to be
+          renamed.
+
+          The permission is repeated here deliberately: an alias is its own component, and
+          a permission declared only on the target does not reliably gate the alias.
+          Filterless, so it stays out of both boot self-check queries.
+        -->
+        <activity-alias
+            android:name="com.android.packageinstaller.Configure"
+            android:targetActivity="com.android.packageinstaller.ConfigureActivity"
+            android:exported="true"
+            android:permission="com.android.packageinstaller.permission.CONFIGURE"/>
+
         <!-- Filterless. See the header comment. -->
         <activity-alias
             android:name="com.android.packageinstaller.InstallStart"

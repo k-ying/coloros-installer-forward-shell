@@ -101,7 +101,7 @@ key-set 逃生口 → 自己重签会被判不兼容 → 包被丢弃 → 0 个�
 `/data/data/com.android.packageinstaller/`），外部界面只是**命令**壳去设置它：
 
 ```sh
-am start -n com.android.packageinstaller/.SetTarget --es pkg com.rosan.installer.x.revived
+am start -n com.android.packageinstaller/.Configure --es targets "com.rosan.installer.x.revived,…"
 ```
 
 这样无论入口是 WebUI、`action.sh` 还是秘密代码，**存储始终在 app 自己手里**。
@@ -115,8 +115,8 @@ am start -n com.android.packageinstaller/.SetTarget --es pkg com.rosan.installer
   am start -n com.android.packageinstaller/.Configure --es targets "com.rosan.installer.x.revived,…"
   ```
   WebUI 里就是 `ksu.exec(...)` 跑这一行 —— **跨域写文件的风险完全避开**（app 写自己的存储永远合法）。
-- **读**（壳 → WebUI）：壳把"候选列表 + 当前勾选"写进自己的 `files/cos-ifs.json`，
-  WebUI 用 `ksu.exec('cat /data/data/com.android.packageinstaller/files/cos-ifs.json')` 读回来渲染。
+- **读**（壳 → WebUI）：壳把"候选列表 + 当前勾选"写进自己的 `files/cos-ifs.txt`，
+  WebUI 用 `ksu.exec('cat /data/data/com.android.packageinstaller/files/cos-ifs.txt')` 读回来渲染。
   **root 读 app 数据目录是常规操作**（备份类工具都这么干），比写安全得多。
 - **发现**（谁枚举候选）：**必须由壳做**，不要让 WebUI 去解析 `pm` / `cmd package` 的输出。
   壳手里有 `PackageManager`，还能正确处理 Android 11+ 的 `<queries>` 可见性；shell 里拼字符串既脆又会漏。
