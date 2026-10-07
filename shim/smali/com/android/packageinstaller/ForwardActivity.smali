@@ -318,8 +318,33 @@
 
     sget-object v2, Lcom/android/packageinstaller/ForwardActivity;->TARGET_PACKAGE:Ljava/lang/String;
 
-    # fwd.setPackage(target);
+    # Log.i("COS-IFS", "forwarding to " + target);   <- the first thing to check on a device
     :have_target
+    const-string v3, "COS-IFS"
+
+    new-instance v4, Ljava/lang/StringBuilder;
+
+    invoke-direct {v4}, Ljava/lang/StringBuilder;-><init>()V
+
+    const-string v5, "forwarding to "
+
+    invoke-virtual {v4, v5}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+
+    move-result-object v5
+
+    invoke-virtual {v4, v2}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+
+    move-result-object v5
+
+    invoke-virtual {v4}, Ljava/lang/StringBuilder;->toString()Ljava/lang/String;
+
+    move-result-object v5
+
+    invoke-static {v3, v5}, Landroid/util/Log;->i(Ljava/lang/String;Ljava/lang/String;)I
+
+    move-result v5
+
+    # fwd.setPackage(target);
     invoke-virtual {v1, v2}, Landroid/content/Intent;->setPackage(Ljava/lang/String;)Landroid/content/Intent;
 
     move-result-object v4
@@ -335,6 +360,19 @@
 
     # Log.e("COS-IFS", "forward failed, target = " + target);
     :catch
+    # Without this the failure is indistinguishable from the old "tapped it, nothing
+    # happened" symptom: the shell replaces the system installer but has no installer of
+    # its own, so an uninstalled/invisible target must say so out loud.
+    const/4 v3, 0x1
+
+    const-string v4, "COS-IFS: 未找到可用的第三方安装器 / no target installer found"
+
+    invoke-static {p0, v4, v3}, Landroid/widget/Toast;->makeText(Landroid/content/Context;Ljava/lang/CharSequence;I)Landroid/widget/Toast;
+
+    move-result-object v4
+
+    invoke-virtual {v4}, Landroid/widget/Toast;->show()V
+
     const-string v3, "COS-IFS"
 
     new-instance v4, Ljava/lang/StringBuilder;
