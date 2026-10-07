@@ -63,12 +63,12 @@ main{max-width:680px;margin:0 auto}
   border-top:1px solid var(--line);cursor:pointer}
 .row:first-child{border-top:0}
 .row:active{background:var(--card2)}
-.row input[type=checkbox]{-webkit-appearance:none;appearance:none;flex:0 0 auto;width:26px;height:26px;
-  margin:0;border:2px solid var(--line2);border-radius:8px;background:var(--card2);position:relative}
-.row input[type=checkbox]:checked{background:var(--accent);border-color:var(--accent)}
-.row input[type=checkbox]:checked::after{content:"";position:absolute;left:8px;top:4px;width:7px;height:13px;
-  border:solid #fff;border-width:0 3px 3px 0;transform:rotate(45deg)}
-.row input[type=checkbox]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row input[type=radio]{-webkit-appearance:none;appearance:none;flex:0 0 auto;width:26px;height:26px;
+  margin:0;border:2px solid var(--line2);border-radius:50%;background:var(--card2);position:relative}
+.row input[type=radio]:checked{background:var(--accent);border-color:var(--accent)}
+.row input[type=radio]:checked::after{content:"";position:absolute;left:6px;top:6px;width:10px;height:10px;
+  border-radius:50%;background:#fff}
+.row input[type=radio]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .rowmain{display:block;flex:1 1 auto;min-width:0}
 .rowlabel{display:block;font-size:16px;font-weight:600;word-break:break-word}
 .rowpkg{display:block;margin-top:2px;font-family:var(--mono);font-size:11.5px;color:var(--muted);word-break:break-all}
@@ -138,15 +138,15 @@ details.card> .pre{margin:0 14px 14px}
   <section id="listCard" class="card" hidden>
     <div class="card-hd">
       <h2>候选安装器</h2>
-      <p class="hint">勾选要转发的安装器；列表顺序就是壳的候选顺序，<b>顺序即优先级</b>（从上到下依次尝试）。<br>Order = priority; the shell tries them top-down.</p>
+      <p class="hint"><b>选一个</b>作为转发目标；没选时用内置默认（InstallerX Revived）。<br>Pick exactly one target. With nothing picked the built-in default (InstallerX Revived) is used.</p>
     </div>
     <div id="list" class="list"></div>
   </section>
 
   <section id="extraCard" class="card" hidden>
     <div class="card-hd">
-      <h2>已勾选但不在候选列表中</h2>
-      <p class="hint">这些包名出现在 <span class="mono">selected</span> 里，但本次没有对应的 <span class="mono">candidate</span> 行（可能已卸载或对壳不可见）。保持勾选即可保留它们。</p>
+      <h2>已选但不在候选列表中</h2>
+      <p class="hint">这个包名出现在 <span class="mono">selected</span> 里，但本次没有对应的 <span class="mono">candidate</span> 行（可能已卸载，或对壳不可见）。选中它即可保留这个选择；壳转发时并不需要看得见目标。</p>
     </div>
     <div id="extraList" class="list"></div>
   </section>
@@ -452,18 +452,19 @@ details.card> .pre{margin:0 14px 14px}
     return /(^|\n)\s*(error|exception|java\.lang\.|unable to resolve|activity class .* does not exist)/i.test(blob);
   }
 
+  /* 单选：最多返回一个包名。壳的 pickTarget() 也只看第一个非空项，两边语义一致。 */
   function tickedInOrder() {
-    var out = [], boxes = document.querySelectorAll('input[type="checkbox"][data-pkg]');
+    var out = [], boxes = document.querySelectorAll('input[type="radio"][data-pkg]');
     for (var i = 0; i < boxes.length; i++) {
       if (boxes[i].checked) out.push(boxes[i].getAttribute('data-pkg'));
     }
-    return out;
+    return out.slice(0, 1);
   }
 
   /* ---- 渲染 ---------------------------------------------------------- */
   function rowEl(c, ord, extra) {
-    var input = h('input', { type: 'checkbox', 'data-pkg': c.pkg });
-    input.checked = model.selected.indexOf(c.pkg) >= 0;
+    var input = h('input', { type: 'radio', name: 'cosifs-target', 'data-pkg': c.pkg });
+    input.checked = model.selected.length > 0 && model.selected[0] === c.pkg;
     var main = h('span', { class: 'rowmain' }, [
       h('span', { class: 'rowlabel', text: c.label }),
       h('span', { class: 'rowpkg', text: c.pkg })
@@ -483,12 +484,12 @@ details.card> .pre{margin:0 14px 14px}
 
     els.list.textContent = '';
     for (var i = 0; i < model.candidates.length; i++) {
-      els.list.appendChild(rowEl(model.candidates[i], i + 1, false));
+      els.list.appendChild(rowEl(model.candidates[i], null, false));
     }
 
     els.extraList.textContent = '';
     for (var j = 0; j < model.extras.length; j++) {
-      els.extraList.appendChild(rowEl({ pkg: model.extras[j], label: '已选目标 / selected' }, null, true));
+      els.extraList.appendChild(rowEl({ pkg: model.extras[j], label: '已选（本次未发现）/ selected, not listed' }, null, true));
     }
 
     var dbg = debugText();
@@ -575,10 +576,13 @@ details.card> .pre{margin:0 14px 14px}
       return { kind: 'warn', text: '读取成功，但文件里没有 candidate 行 —— 壳还没有枚举出候选安装器。' };
     }
     var n = r.parsed.selected.length;
+    var tail;
+    if (n === 0) tail = '，未选择 —— 将使用内置默认（InstallerX Revived）。';
+    else if (n === 1) tail = '，已选 ' + r.parsed.selected[0] + '。';
+    else tail = '，已选 ' + r.parsed.selected[0] + '（文件里有 ' + n + ' 项，只取第一项）。';
     return {
       kind: 'ok',
-      text: '已载入 ' + r.parsed.candidates.length + ' 个候选安装器' +
-        (n ? '，当前勾选 ' + n + ' 个。' : '，当前未勾选任何项。')
+      text: '已载入 ' + r.parsed.candidates.length + ' 个候选安装器' + tail
     };
   }
 

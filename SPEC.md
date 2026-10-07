@@ -10,7 +10,7 @@
 |---|---|---|
 | 构建工具链 | **纯 smali + apktool** | 本机无 Android SDK、无 `javac`；`apktool.jar` 内置 `prebuilt/linux/aapt2` 与 smali → **零额外下载** |
 | 目标选择（v1） | 自动发现 → 优先级列表 → 系统选择器 | 零配置即可用；用户换安装器也不必改代码 |
-| WebUI | **v1 就做**：自动搜索列表 + 勾选 | 桥在 KernelSU 上已被 Hybrid Mount 验证可用 |
+| WebUI | **v1 就做**：自动搜索列表 + 单选（v0.7 起，见 §15） | 桥在 KernelSU 上已被 Hybrid Mount 验证可用 |
 | 配置存储 | 壳自己的 app 数据目录 | 系统 app 读不到 `/data/adb`（见 §5） |
 | 缩写 | **COS-IFS** | 避免与 SMB/CIFS 混淆 |
 
@@ -112,9 +112,10 @@ am start -n com.android.packageinstaller/.Configure --es targets "com.rosan.inst
 
 - **写**（WebUI → 壳）：**不走文件，走 intent，让壳自己存**：
   ```sh
-  am start -n com.android.packageinstaller/.Configure --es targets "com.rosan.installer.x.revived,…"
+  am start -n com.android.packageinstaller/.Configure --es targets "com.rosan.installer.x.revived"
   ```
   WebUI 里就是 `ksu.exec(...)` 跑这一行 —— **跨域写文件的风险完全避开**（app 写自己的存储永远合法）。
+  **选择是单选的**（v0.7 起，见 §15）：这个参数里实际上只会有一个包名。
 - **读**（壳 → WebUI）：壳把"候选列表 + 当前勾选"写进自己的 `files/cos-ifs.txt`，
   WebUI 从 app 数据目录读回来渲染。**root 读 app 数据目录是常规操作**（备份类工具都这么干），
   比写安全得多。
@@ -124,7 +125,7 @@ am start -n com.android.packageinstaller/.Configure --es targets "com.rosan.inst
 - **发现**（谁枚举候选）：**必须由壳做**，不要让 WebUI 去解析 `pm` / `cmd package` 的输出。
   壳手里有 `PackageManager`，还能正确处理 Android 11+ 的 `<queries>` 可见性；shell 里拼字符串既脆又会漏。
 
-于是职责很干净：**壳负责发现与存储，WebUI 只负责画一个带勾选的列表并调用 `am start`。**
+于是职责很干净：**壳负责发现与存储，WebUI 只负责画一个带单选的列表并调用 `am start`。**
 
 > 兼容性：`ksu.exec` 是 KernelSU 管理器的 WebView 桥，APatch 等不保证有 ——
 > 所以壳自己的秘密代码入口（`*#*#…`）**必须一并保留**，作为无 WebUI 时的配置途径。
@@ -194,11 +195,12 @@ ForwardShell 是另一条路。**两者不能同时启用** —— 都会占用 
    `dumpsys package` 也按我们的值解析（`versionCode=17000001`）。**架构成立**。
 4. ~~**转发逻辑**~~ → **已完成并真机验证**：intent 复制 + `setComponent(null)` + `setPackage` + try/catch。
    装上 InstallerX 后 NP管理器 触发的安装确实被转发过去了。
-5. ~~**自动发现 + 优先级列表**~~ → **已完成并真机验证**（转发侧）：保存列表 → 内置 `PREFERRED`
-   → 唯一候选 → null（回退到写死的目标包）。**枚举侧的显示 bug 见 §12，v0.4 修复。**
+5. ~~**自动发现 + 目标选择**~~ → **已完成并真机验证**（转发侧）：已保存列表的第一项 → 内置默认
+   `TARGET_PACKAGE`。（v0.3 时期还有"候选列表过滤 + 唯一候选猜测"，v0.5 已删除，理由见 §13；
+   **枚举**本身在 v0.4 修好，WebUI 的**显示**在 v0.6 修好 —— 见 §12 / §14。）
 6. ~~**配置存储 + `ConfigureActivity`**~~ → **已完成**（签名级权限保护）。
-   ~~**WebUI**~~ → **已完成**（`module/webroot/index.html`，自动搜索 + 勾选，显示顺序即优先级；
-   还会保留"已选但本次没发现"的包）。秘密代码入口**未做** —— v1 的图形界面只有 WebUI；
+   ~~**WebUI**~~ → **已完成**（`module/webroot/index.html`，自动搜索 + **单选**；v0.7 起单选，
+   理由见 §15）。还会保留"已选但本次没发现"的包。秘密代码入口**未做** —— v1 的图形界面只有 WebUI；
    没有 WebView 桥的管理器可以用 `am start` 配置（README 有写）。
 7. **未做**：「目标没装」时的内置兜底安装器（见 §8.1）。
 
@@ -490,3 +492,38 @@ WebUI 端用 `decodeState()` 解码（`atob` + `TextDecoder('utf-8')`，中文�
    字符串其实是最后一行"这一事实 —— 于是 WebUI 一路"正常"地解析了一行，没有任何报错。
 3. **凡是"静默少东西"的通道，都要有能自证的显示**：现在调试面板把 raw 和 decoded 并排显示，
    以后再有截断会立刻暴露。
+
+---
+
+## 15. 选择语义：从"优先级列表"改成单选（v0.7，2026-10-07）
+
+**问题（用户发现）**：WebUI 里候选是可以**多选**的，文案还写着"列表顺序就是壳的候选顺序，
+**顺序即优先级**（从上到下依次尝试）"。但 v0.5 的 `pickTarget()` 只返回**第一个非空项**，
+`onCreate` 也只 `startActivity` **一次** —— **根本没有"依次尝试"这回事**。
+
+也就是说：
+
+- 勾 3 个和只勾最上面那 1 个，**行为完全一样**；
+- 第一条如果启动失败（比如已被卸载），得到的是 Toast，**不会**回落到第二条。
+
+那句文案是我早期写下的设计意图，实现时砍掉了（为了去掉对 `queryIntentActivities` 的依赖），
+但文案留着没改 —— 属于**界面在承诺代码没做的事**。
+
+**决定**：改成**单选（radio）**。理由：
+
+1. **确定性优先。** 这是个系统安装器，用户选了谁就转发给谁；静默改用另一个安装器是更坏的结果。
+2. **与实现一致。** 壳本来就只用第一项，UI 说"选一个"才是真话，也才不需要再写一套"依次尝试"的
+   启动循环（那是更多 smali 面 = 更多出错机会）。
+3. 兜底仍然存在：**什么都没选 → 壳用内置默认 `TARGET_PACKAGE`（InstallerX Revived）**。
+
+**改动（纯 WebUI）**：`input[type=checkbox]` → `input[type=radio]`（共用 `name` 才互斥）、
+圆点样式、去掉序号徽标、文案改成"选一个作为转发目标；没选时用内置默认"。
+`tickedInOrder()` 现在最多返回一个元素（`slice(0, 1)`），所以发给壳的 CSV 里只有一个包名；
+壳侧**完全不用改**。若旧配置里存了多项，界面会提示"文件里有 N 项，只取第一项"。
+
+**顺带纠正一条我之前说错的预期**：**任何模块更新都必须重启。** 我之前说"只改 webroot 可以不重启"
+是错的 —— 用户实测：刷完 v0.6 后模块选项**变灰、WebUI 进不去**，重启后才正常。
+KernelSU 会把刚更新过的模块置为待更新状态。以后不要再用"免重启更新"这种说法。
+
+**版本号约定**：`module.prop` 的 `version` 就写纯数字（`0.7`），不再附加 `(shell x.y)` ——
+壳的版本随模块走，不需要在字符串里体现（用户明确要求）。
