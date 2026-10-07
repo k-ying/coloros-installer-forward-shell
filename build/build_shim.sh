@@ -84,6 +84,13 @@ python3 "$HERE/graftsig.py" \
     "$DONOR" \
     "$OUT"
 
+# 3b) Normalise the zip timestamps, in place. Everything else here is already
+#     deterministic -- entry contents, CRCs, offsets, padding, and a signing block that
+#     comes out identical every time -- so the wall-clock DOS timestamps were the only
+#     thing making two builds of the same source differ, and that made any published hash
+#     unverifiable. Verified: two independent builds normalise to the same bytes.
+python3 "$HERE/normalize_zip_time.py" "$OUT"
+
 # 4) Assert the boot-critical invariants on the artifact just produced. This runs here
 #    rather than by hand because the component counts decide whether the device boots at
 #    all -- exactly one component may answer the installer query, exactly one the
