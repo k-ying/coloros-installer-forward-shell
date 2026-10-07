@@ -9,3 +9,6 @@ dist/
 
 .DS_Store
 Thumbs.db
+
+# apktool caches its previous output inside the project tree
+shim/build/
